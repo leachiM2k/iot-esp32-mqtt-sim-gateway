@@ -39,6 +39,7 @@ private:
     void setNetworkMode();
     void setNetworkApn();
     void awaitNetworkRegistration();
+    String readSMS(int index);
 
     // Add private members and methods as needed
     StreamDebugger debugger = StreamDebugger(SerialAT, Serial);

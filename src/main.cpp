@@ -45,15 +45,38 @@ void sendSimComEvent(sim_com_check_result &result)
     doc["time"] = timeStr;
     doc["timestamp"] = now;
     doc["event"] = result.event;
-    doc["data"] = result.data;
+    
+    // Special handling for SMS events
+    if (result.event == SIM_COM_SMS && result.data.indexOf(":") != -1)
+    {
+        // Parse sender:message format
+        int colonIndex = result.data.indexOf(":");
+        String sender = result.data.substring(0, colonIndex);
+        String message = result.data.substring(colonIndex + 1);
+        
+        doc["sender"] = sender;
+        doc["message"] = message;
+        doc["data"] = result.data; // Keep original format as backup
+    }
+    else
+    {
+        doc["data"] = result.data;
+    }
 
-    char json[200];
+    char json[300];
     size_t n = serializeJson(doc, json);
 
     Serial.println(json);
 
     char topic[60] = {0};
-    sprintf(topic, "%s/%s/checkresult", MQTT_EVENT_TOPIC, macStr);
+    if (result.event == SIM_COM_SMS)
+    {
+        sprintf(topic, "%s/%s/sms", MQTT_EVENT_TOPIC, macStr);
+    }
+    else
+    {
+        sprintf(topic, "%s/%s/checkresult", MQTT_EVENT_TOPIC, macStr);
+    }
 
     mqtt.publish(topic, json);
 }
@@ -240,7 +263,12 @@ void loop()
     if (result.event != SIM_COM_NOTHING)
     {
         sendSimComEvent(result);
-        publishCallStatus(simCommunication.getCallStatus().c_str());
+        
+        // Only publish call status for call-related events
+        if (result.event == SIM_COM_CALL || result.event == SIM_COM_CALL_UPDATE)
+        {
+            publishCallStatus(simCommunication.getCallStatus().c_str());
+        }
     }
 
     if (SerialAT.available())

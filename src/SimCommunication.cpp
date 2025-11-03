@@ -19,6 +19,14 @@ void SimCommunication::init()
     setNetworkMode();
     setNetworkApn();
     awaitNetworkRegistration();
+    
+    // Enable SMS notifications
+    modem.sendAT("+CNMI=1,2,0,0,0"); // Enable SMS notifications to terminal
+    modem.waitResponse();
+    
+    // Set SMS text mode
+    modem.sendAT("+CMGF=1"); // Set SMS text mode (not PDU mode)
+    modem.waitResponse();
 }
 
 bool ringDetected()
@@ -28,6 +36,38 @@ bool ringDetected()
 
 sim_com_check_result SimCommunication::check()
 {
+    // Check for incoming SMS
+    String response;
+    if (modem.stream.available())
+    {
+        response = modem.stream.readString();
+        Serial.print("Modem response: ");
+        Serial.println(response);
+        
+        // Check for SMS notification (+CMTI)
+        int cmtiIndex = response.indexOf("+CMTI:");
+        if (cmtiIndex != -1)
+        {
+            Serial.println("SMS received notification detected");
+            
+            // Extract SMS index from +CMTI response
+            int commaIndex = response.indexOf(",", cmtiIndex);
+            if (commaIndex != -1)
+            {
+                String smsIndexStr = response.substring(commaIndex + 1);
+                smsIndexStr.trim();
+                int smsIndex = smsIndexStr.toInt();
+                
+                // Read the SMS content
+                String smsContent = readSMS(smsIndex);
+                if (smsContent.length() > 0)
+                {
+                    return {SIM_COM_SMS, smsContent};
+                }
+            }
+        }
+    }
+
     if (ringDetected())
     {
         if (currentCallStatus != RINGING)
@@ -162,6 +202,70 @@ void SimCommunication::sendSMS(const char *number, const char *message)
     {
         Serial.println("Failed to send SMS");
     }
+}
+
+String SimCommunication::readSMS(int index)
+{
+    String smsContent = "";
+    
+    // Use AT+CMGR command to read SMS at specific index
+    modem.sendAT("+CMGR=", index);
+    String response;
+    int8_t res = modem.waitResponse(5000, response);
+    
+    if (res == 1 && response.indexOf("OK") != -1)
+    {
+        // Parse the SMS response
+        // Format: +CMGR: "status","sender","","timestamp"
+        // Message content follows on next line
+        
+        int cmgrIndex = response.indexOf("+CMGR:");
+        if (cmgrIndex != -1)
+        {
+            // Find the sender number (second quoted string)
+            int firstQuote = response.indexOf("\"", cmgrIndex);
+            int secondQuote = response.indexOf("\"", firstQuote + 1);
+            int thirdQuote = response.indexOf("\"", secondQuote + 1);
+            int fourthQuote = response.indexOf("\"", thirdQuote + 1);
+            
+            if (firstQuote != -1 && secondQuote != -1 && thirdQuote != -1 && fourthQuote != -1)
+            {
+                String sender = response.substring(thirdQuote + 1, fourthQuote);
+                
+                // Find the message content (after the header line)
+                int newlineIndex = response.indexOf("\n", fourthQuote);
+                if (newlineIndex != -1)
+                {
+                    int messageStart = newlineIndex + 1;
+                    int okIndex = response.indexOf("\nOK", messageStart);
+                    if (okIndex != -1)
+                    {
+                        String message = response.substring(messageStart, okIndex);
+                        message.trim();
+                        
+                        // Format: "sender:message"
+                        smsContent = sender + ":" + message;
+                        
+                        Serial.print("SMS from ");
+                        Serial.print(sender);
+                        Serial.print(": ");
+                        Serial.println(message);
+                        
+                        // Delete the SMS after reading to prevent memory issues
+                        modem.sendAT("+CMGD=", index);
+                        modem.waitResponse(5000);
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        Serial.print("Failed to read SMS at index ");
+        Serial.println(index);
+    }
+    
+    return smsContent;
 }
 
 // private methods
