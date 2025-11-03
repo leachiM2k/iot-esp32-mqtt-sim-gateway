@@ -20,17 +20,22 @@ TinyGsm modem(debugger);
 MqttClient mqtt;
 SimCommunication simCommunication;
 
-void sendSimComEvent(sim_com_check_result &result)
+String getCurrentTimeISO8601()
 {
-    // Get current time
     time_t now;
     struct tm timeinfo;
     time(&now);
     localtime_r(&now, &timeinfo);
 
-    // format time to ISO8601
     char timeStr[30];
     strftime(timeStr, sizeof(timeStr), "%FT%TZ", &timeinfo);
+    
+    return String(timeStr);
+}
+
+void sendSimComEvent(sim_com_check_result &result)
+{
+    String timeStr = getCurrentTimeISO8601();
 
     // Get MAC address
     uint8_t mac[6];
@@ -43,7 +48,6 @@ void sendSimComEvent(sim_com_check_result &result)
 
     doc["mac"] = macStr;
     doc["time"] = timeStr;
-    doc["timestamp"] = now;
     doc["event"] = result.event;
     
     // Special handling for SMS events
@@ -83,15 +87,7 @@ void sendSimComEvent(sim_com_check_result &result)
 
 void publishCallStatus(const char *status)
 {
-    // Get current time
-    time_t now;
-    struct tm timeinfo;
-    time(&now);
-    localtime_r(&now, &timeinfo);
-
-    // format time to ISO8601
-    char timeStr[30];
-    strftime(timeStr, sizeof(timeStr), "%FT%TZ", &timeinfo);
+    String timeStr = getCurrentTimeISO8601();
 
     // Get MAC address
     uint8_t mac[6];
@@ -104,7 +100,6 @@ void publishCallStatus(const char *status)
 
     doc["mac"] = macStr;
     doc["time"] = timeStr;
-    doc["timestamp"] = now;
     doc["status"] = status;
 
     char json[200];
@@ -253,11 +248,24 @@ void setup()
 
     char infoTopic[60] = {0};
     sprintf(infoTopic, "%s/%s/info", MQTT_EVENT_TOPIC, macStr);
-    mqtt.publish(infoTopic, "Device started");
+
+    String infoMessage = "Device started at " + getCurrentTimeISO8601();
+    mqtt.publish(infoTopic, infoMessage.c_str()); 
+
+    int smsCount = simCommunication.getSMSCount();
+    Serial.print("Number of SMS on SIM card: ");
+    Serial.println(smsCount);
 }
 
 void loop()
 {
+    // Check MQTT connection and reconnect if necessary
+    if (!mqtt.connected()) {
+        Serial.println("MQTT disconnected, attempting reconnect...");
+        mqtt.reconnect();
+        delay(1000); // Give it time to connect
+    }
+
     sim_com_check_result result = simCommunication.check();
 
     if (result.event != SIM_COM_NOTHING)

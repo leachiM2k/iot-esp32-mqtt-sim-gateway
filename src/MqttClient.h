@@ -13,6 +13,8 @@ public:
     MqttClient(const char *server, const char *user, const char *password, const char *commandTopic, const char *eventTopic, OnDataCallback onDataCallback);
 
     void init();
+    bool connected();
+    void reconnect();
     void connect();
     void publish(const char *topic, const char *message);
     void subscribe(const char *topic);
@@ -27,6 +29,7 @@ private:
     const char *mqtt_event_topic;
     esp_mqtt_client_handle_t client;
     OnDataCallback onDataCallback;
+    bool isConnected; // Track connection status manually
 };
 
 #endif // MQTT_CLIENT_H

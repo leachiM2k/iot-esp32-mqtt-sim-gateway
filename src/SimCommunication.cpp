@@ -9,23 +9,54 @@
 void SimCommunication::init()
 {
     SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
+    currentCallStatus = NO_CALL;
+
     powerUpModem();
     startModem();
 
     modem.sendAT("+SIMCOMATI");
     modem.waitResponse();
 
+    // Wait PB DONE
+    Serial.println("Wait SMS Done.");
+    if (!modem.waitResponse(100000UL, "SMS DONE")) {
+        Serial.println("Can't wait from sms register ....");
+        return;
+    }
+
     isSimCardOnline();
     setNetworkMode();
     setNetworkApn();
     awaitNetworkRegistration();
     
+    // wait until MODEM_RING_PIN is HIGH to avoid false ring detection at startup
+    while (digitalRead(MODEM_RING_PIN) == LOW)
+    {
+        Serial.println("Waiting for RING pin to go HIGH...");
+        delay(100);
+    }
+    Serial.println("RING pin is HIGH, proceeding with initialization.");
+
     // Enable SMS notifications
-    modem.sendAT("+CNMI=1,2,0,0,0"); // Enable SMS notifications to terminal
-    modem.waitResponse();
+    // modem.sendAT("+CNMI=1,2,0,0,0"); // Enable SMS notifications to terminal
+    // modem.waitResponse();
     
     // Set SMS text mode
     modem.sendAT("+CMGF=1"); // Set SMS text mode (not PDU mode)
+    modem.waitResponse();
+    
+    // Configure SMS to be stored in SIM memory instead of being forwarded directly
+    // Format: AT+CNMI=<mode>,<mt>,<bm>,<ds>,<bfr>
+    // mode=1: buffer unsolicited result codes in TA when TA-TE link is reserved
+    // mt=1: SMS-DELIVER is stored and indication is sent to TE
+    // bm=0: no SMS-STATUS-REPORTs are routed
+    // ds=0: no SMS-STATUS-REPORTs are routed  
+    // bfr=0: buffer is flushed when mode 1 is entered
+    modem.sendAT("+CNMI=1,1,0,0,0"); // Store SMS and send notification
+    modem.waitResponse();
+    
+    // Set preferred SMS storage to SIM card
+    modem.sendAT("+CPMS=\"SM\",\"SM\",\"SM\""); // Use SIM memory for read, write, and receive
     modem.waitResponse();
 }
 
@@ -36,33 +67,30 @@ bool ringDetected()
 
 sim_com_check_result SimCommunication::check()
 {
-    // Check for incoming SMS
-    String response;
-    if (modem.stream.available())
-    {
-        response = modem.stream.readString();
-        Serial.print("Modem response: ");
-        Serial.println(response);
+    // Check for incoming SMS notifications (+CMTI) - but limit frequency
+    static unsigned long lastSMSCheck = 0;
+    if (SerialAT.available() && (millis() - lastSMSCheck > 500)) {
+        lastSMSCheck = millis();
         
-        // Check for SMS notification (+CMTI)
-        int cmtiIndex = response.indexOf("+CMTI:");
-        if (cmtiIndex != -1)
-        {
-            Serial.println("SMS received notification detected");
+        String response = SerialAT.readString();
+        
+        // Check for SMS notification: +CMTI: "SM",index
+        if (response.indexOf("+CMTI:") != -1) {
+            Serial.println("SMS notification received: " + response);
             
-            // Extract SMS index from +CMTI response
-            int commaIndex = response.indexOf(",", cmtiIndex);
-            if (commaIndex != -1)
-            {
-                String smsIndexStr = response.substring(commaIndex + 1);
-                smsIndexStr.trim();
-                int smsIndex = smsIndexStr.toInt();
-                
-                // Read the SMS content
-                String smsContent = readSMS(smsIndex);
-                if (smsContent.length() > 0)
-                {
-                    return {SIM_COM_SMS, smsContent};
+            // Extract SMS index from +CMTI notification
+            int cmtiIndex = response.indexOf("+CMTI:");
+            if (cmtiIndex != -1) {
+                int commaPos = response.indexOf(",", cmtiIndex);
+                if (commaPos != -1) {
+                    int smsIndex = response.substring(commaPos + 1).toInt();
+                    
+                    // Read the specific SMS
+                    String smsContent = readSMS(smsIndex);
+                    if (smsContent.length() > 0) {
+                        Serial.println("New SMS received: " + smsContent);
+                        return {SIM_COM_SMS, smsContent};
+                    }
                 }
             }
         }
@@ -70,6 +98,14 @@ sim_com_check_result SimCommunication::check()
 
     if (ringDetected())
     {
+        // Check if it is an incoming SMS
+        String smsContent = readAllSMS();
+        if (smsContent.length() > 0)
+        {
+            Serial.println("Incoming SMS detected.");
+            return {SIM_COM_SMS, smsContent};
+        }
+
         if (currentCallStatus != RINGING)
         {
             Serial.print("Incoming call...");
@@ -202,6 +238,101 @@ void SimCommunication::sendSMS(const char *number, const char *message)
     {
         Serial.println("Failed to send SMS");
     }
+    else 
+    {
+        Serial.println("SMS sent successfully");
+    }
+}
+
+int SimCommunication::getSMSCount()
+{
+    int smsCount = 0;
+    
+    // Use AT+CPMS? command to query message storage status
+    modem.sendAT(GF("+CPMS?"));
+    String response;
+    int8_t res = modem.waitResponse(5000, response);
+    
+    if (res == 1 && response.indexOf("OK") != -1)
+    {
+        // Response format: +CPMS: "SM",used,total,"SM",used,total,"SM",used,total
+        // We want the first 'used' value which represents SMS in SIM storage
+        
+        int cpmsIndex = response.indexOf("+CPMS:");
+        if (cpmsIndex != -1)
+        {
+            // Find the first comma after +CPMS: "SM",
+            int firstQuoteEnd = response.indexOf("\",", cpmsIndex);
+            if (firstQuoteEnd != -1)
+            {
+                int usedStart = firstQuoteEnd + 2; // Skip ","
+                int usedEnd = response.indexOf(",", usedStart);
+                if (usedEnd != -1)
+                {
+                    String usedStr = response.substring(usedStart, usedEnd);
+                    smsCount = usedStr.toInt();
+                    
+                    Serial.print("SMS count on SIM card: ");
+                    Serial.println(smsCount);
+                }
+            }
+        }
+    }
+    else
+    {
+        Serial.println("Failed to query SMS storage status");
+        
+        // Alternative method: Use AT+CMGL="ALL" and count entries
+        modem.sendAT(GF("+CMGL=\"ALL\""));
+        String listResponse;
+        res = modem.waitResponse(5000, listResponse);
+        
+        if (res == 1 && listResponse.indexOf("OK") != -1)
+        {
+            // Count occurrences of "+CMGL:" which indicates individual SMS
+            int index = 0;
+            while ((index = listResponse.indexOf("+CMGL:", index)) != -1)
+            {
+                smsCount++;
+                index += 6; // Move past "+CMGL:"
+            }
+            
+            Serial.print("SMS count (alternative method): ");
+            Serial.println(smsCount);
+        }
+    }
+    
+    return smsCount;
+}
+
+String SimCommunication::readAllSMS()
+{
+    String smsList = "";
+    
+    int smsCount = getSMSCount();
+    if (smsCount == 0)
+    {
+        Serial.println("No SMS messages to read.");
+        return smsList;
+    }
+
+    // Read each SMS and print content
+    int index = 1;
+    String smsContent = "";
+
+    for (int index = 1; index <= smsCount; index++)
+    {
+        smsContent = readSMS(index);
+        if (smsContent.length() > 0)
+        {
+            Serial.println("SMS Content:");
+            Serial.println(smsContent);
+            // append to smsList
+            smsList += smsContent + "\n";
+        }
+    }
+    
+    return smsList;
 }
 
 String SimCommunication::readSMS(int index)

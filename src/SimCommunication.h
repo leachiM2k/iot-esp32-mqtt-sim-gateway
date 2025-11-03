@@ -30,6 +30,8 @@ public:
     bool acceptCall();
     bool hangupCall();
     void sendSMS(const char *number, const char *message);
+    int getSMSCount();
+    String readAllSMS();
     void sendUSSD(const char *ussd);
 
 private:

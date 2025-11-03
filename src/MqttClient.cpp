@@ -4,11 +4,13 @@
 
 MqttClient::MqttClient()
 {
+    isConnected = false;
 }
 
 MqttClient::MqttClient(const char *server, const char *user, const char *password, const char *commandTopic, const char *eventTopic, OnDataCallback onDataCallback)
     : mqtt_server(server), mqtt_user(user), mqtt_password(password), mqtt_command_topic(commandTopic), mqtt_event_topic(eventTopic), onDataCallback(onDataCallback)
 {
+    isConnected = false;
     init();
 }
 
@@ -21,6 +23,19 @@ void MqttClient::init()
     };
 
     client = esp_mqtt_client_init(&mqtt_cfg);
+}
+
+bool MqttClient::connected()
+{
+    return isConnected;
+}
+
+void MqttClient::reconnect()
+{
+    if (!connected()) {
+        Serial.println("Attempting MQTT reconnection...");
+        esp_mqtt_client_reconnect(client);
+    }
 }
 
 void MqttClient::connect()
@@ -47,10 +62,12 @@ void MqttClient::mqtt_event_handler(void *handler_args, esp_event_base_t base, i
     {
     case MQTT_EVENT_CONNECTED:
         Serial.println("MQTT_EVENT_CONNECTED");
+        self->isConnected = true;
         self->subscribe(self->mqtt_command_topic);
         break;
     case MQTT_EVENT_DISCONNECTED:
         Serial.println("MQTT_EVENT_DISCONNECTED");
+        self->isConnected = false;
         break;
     case MQTT_EVENT_SUBSCRIBED:
         Serial.println("MQTT_EVENT_SUBSCRIBED");
@@ -78,6 +95,7 @@ void MqttClient::mqtt_event_handler(void *handler_args, esp_event_base_t base, i
         break;
     case MQTT_EVENT_ERROR:
         Serial.println("MQTT_EVENT_ERROR");
+        self->isConnected = false;
         break;
     }
 }
