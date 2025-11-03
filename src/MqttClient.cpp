@@ -86,7 +86,6 @@ void MqttClient::mqtt_event_handler(void *handler_args, esp_event_base_t base, i
         Serial.println("MQTT_EVENT_DATA");
         Serial.printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
         Serial.printf("DATA=%.*s\r\n", event->data_len, event->data);
-        self->publish(event->topic, "");
         if (self->onDataCallback)
         {
             Serial.println("Calling onDataCallback");
