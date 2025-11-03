@@ -101,6 +101,7 @@ enum class Action
     CALL,
     ACCEPT,
     HANGUP,
+    SMS,
     UNKNOWN
 };
 
@@ -121,6 +122,10 @@ Action getAction(const char *action)
     else if (strcmp(action, "hangup") == 0)
     {
         return Action::HANGUP;
+    }
+    else if (strcmp(action, "sms") == 0)
+    {
+        return Action::SMS;
     }
     else
     {
@@ -180,6 +185,20 @@ void onDataReceived(const char *topic, const char *data, int length)
     case Action::HANGUP:
         simCommunication.hangupCall();
         publishCallStatus(simCommunication.getCallStatus().c_str());
+        break;
+
+    case Action::SMS:
+        {
+            const char *smsNumber = doc["number"];
+            const char *smsMessage = doc["message"];
+            if (smsNumber && smsMessage) {
+                Serial.println("Sending SMS...");
+                simCommunication.sendSMS(smsNumber, smsMessage);
+                Serial.printf("SMS sent to %s: %s\n", smsNumber, smsMessage);
+            } else {
+                Serial.println("SMS action requires 'number' and 'message' fields");
+            }
+        }
         break;
 
     default:
