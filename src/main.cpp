@@ -33,15 +33,20 @@ String getCurrentTimeISO8601()
     return String(timeStr);
 }
 
-void sendSimComEvent(sim_com_check_result &result)
+String getCurrentMacAddress()
 {
-    String timeStr = getCurrentTimeISO8601();
-
-    // Get MAC address
     uint8_t mac[6];
     char macStr[18] = {0};
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(macStr, sizeof(macStr), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return String(macStr);
+}
+
+void sendSimComEvent(sim_com_check_result &result)
+{
+    String timeStr = getCurrentTimeISO8601();
+
+    String macStr = getCurrentMacAddress();
 
     // Generate JSON
     JsonDocument doc;
@@ -75,11 +80,11 @@ void sendSimComEvent(sim_com_check_result &result)
     char topic[60] = {0};
     if (result.event == SIM_COM_SMS)
     {
-        sprintf(topic, "%s/%s/sms", MQTT_EVENT_TOPIC, macStr);
+        sprintf(topic, "%s/%s/sms", MQTT_EVENT_TOPIC, macStr.c_str());
     }
     else
     {
-        sprintf(topic, "%s/%s/checkresult", MQTT_EVENT_TOPIC, macStr);
+        sprintf(topic, "%s/%s/checkresult", MQTT_EVENT_TOPIC, macStr.c_str());
     }
 
     mqtt.publish(topic, json);
@@ -89,11 +94,7 @@ void publishCallStatus(const char *status)
 {
     String timeStr = getCurrentTimeISO8601();
 
-    // Get MAC address
-    uint8_t mac[6];
-    char macStr[18] = {0};
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    snprintf(macStr, sizeof(macStr), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    String macStr = getCurrentMacAddress();
 
     // Generate JSON
     JsonDocument doc;
@@ -108,7 +109,7 @@ void publishCallStatus(const char *status)
     Serial.println(json);
 
     char topic[60] = {0};
-    sprintf(topic, "%s/%s/callstatus", MQTT_EVENT_TOPIC, macStr);
+    sprintf(topic, "%s/%s/callstatus", MQTT_EVENT_TOPIC, macStr.c_str());
 
     mqtt.publish(topic, json);
 }
@@ -236,18 +237,15 @@ void setup()
 
     simCommunication.init();
 
-    uint8_t mac[6];
-    char macStr[18] = {0};
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    snprintf(macStr, sizeof(macStr), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    String macStr = getCurrentMacAddress();
 
     char commandsTopic[60] = {0};
-    sprintf(commandsTopic, "%s/%s", MQTT_COMMAND_TOPIC, macStr);
+    sprintf(commandsTopic, "%s/%s", MQTT_COMMAND_TOPIC, macStr.c_str());
     mqtt = MqttClient(MQTT_SERVER, MQTT_USER, MQTT_PASSWORD, commandsTopic, MQTT_EVENT_TOPIC, onDataReceived);
     mqtt.connect();
 
     char infoTopic[60] = {0};
-    sprintf(infoTopic, "%s/%s/info", MQTT_EVENT_TOPIC, macStr);
+    sprintf(infoTopic, "%s/%s/info", MQTT_EVENT_TOPIC, macStr.c_str());
 
     String infoMessage = "Device started at " + getCurrentTimeISO8601();
     mqtt.publish(infoTopic, infoMessage.c_str()); 
