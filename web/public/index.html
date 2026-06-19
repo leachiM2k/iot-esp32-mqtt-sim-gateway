@@ -125,6 +125,7 @@
     <h2>GPS-Position</h2>
     <div class="row">
       <button class="primary" id="btnGps">GPS abfragen</button>
+      <button id="btnGpsOff">GPS ausschalten</button>
       <span id="gpsStatus" class="note"></span>
     </div>
     <div id="gpsResult" style="display:none; margin-top:10px">
@@ -164,7 +165,8 @@
       <li>➕ Ausgehenden Anruf starten — Kommando <code>call</code> <span class="muted">(in deiner Liste nicht erwähnt, per MQTT möglich)</span></li>
       <li>➕ Board neustarten — Kommando <code>reboot</code> <span class="muted">(per MQTT möglich)</span></li>
       <li>➕ Eingehende Anrufernummer — Topic <code>/checkresult</code> (event 1) <span class="muted">(im Anruf-Banner)</span></li>
-      <li>➕ GPS-Position abfragen — Kommando <code>gps</code> → Topic <code>/gps</code> <span class="muted">(nur A7670E-FASE mit GNSS; Anzeige als OpenStreetMap-Karte)</span></li>
+      <li>➕ GPS-Position abfragen — Kommando <code>gps</code> → Topic <code>/gps</code> <span class="muted">(nur A7670E-FASE mit GNSS; Anzeige als OpenStreetMap-Karte; asynchron, blockiert das Board nicht)</span></li>
+      <li>➕ GNSS ausschalten (Strom sparen) — Kommando <code>gpsoff</code></li>
     </ul>
     <p class="note"><b>Nicht integriert / Einschränkungen:</b></p>
     <ul class="note">
@@ -343,8 +345,13 @@ document.querySelectorAll("button[data-action]").forEach((btn) => {
 });
 
 $("btnGps").addEventListener("click", () => {
-  $("gpsStatus").textContent = "Position wird abgefragt… (GNSS braucht ggf. einen Moment)";
+  $("gpsStatus").textContent = "Position wird abgefragt… (GNSS-Kaltstart kann bis ~90 s dauern)";
   sendCommand({ action: "gps" });
+});
+
+$("btnGpsOff").addEventListener("click", () => {
+  $("gpsStatus").textContent = "GNSS wird ausgeschaltet (Strom sparen).";
+  sendCommand({ action: "gpsoff" });
 });
 
 $("btnSendSms").addEventListener("click", () => {

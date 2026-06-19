@@ -27,7 +27,7 @@ const MQTT_USER = Deno.env.get("MQTT_USERNAME");
 const MQTT_PASS = Deno.env.get("MQTT_PASSWORD");
 
 // --- Command whitelist (mirrors the firmware's getAction()) -----------------
-const ALLOWED_ACTIONS = new Set(["reboot", "call", "accept", "hangup", "sms", "gps"]);
+const ALLOWED_ACTIONS = new Set(["reboot", "call", "accept", "hangup", "sms", "gps", "gpsoff"]);
 const MAC_RE = /^[0-9A-Fa-f]{12}$/;
 const NUMBER_RE = /^\+?[0-9 ]{3,20}$/;
 
