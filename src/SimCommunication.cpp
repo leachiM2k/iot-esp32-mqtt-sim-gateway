@@ -232,6 +232,83 @@ void SimCommunication::updateGps()
     }
 }
 
+// --- VoLTE (voice domain preference) ---------------------------------------
+
+volte_status SimCommunication::readVolteStatus()
+{
+    volte_status s = {false, -1, false, false};
+    if (!modemReady) return s;
+    String resp;
+
+    modem.sendAT("+CEVDP?");
+    if (modem.waitResponse(2000, resp) == 1)
+    {
+        int i = resp.indexOf("+CEVDP:");
+        if (i >= 0) s.cevdp = resp.substring(i + 7).toInt();
+    }
+
+    resp = "";
+    modem.sendAT("+CAVIMS?");
+    if (modem.waitResponse(2000, resp) == 1)
+    {
+        int i = resp.indexOf("+CAVIMS:");
+        if (i >= 0) s.imsAvailable = (resp.substring(i + 8).toInt() == 1);
+    }
+
+    resp = "";
+    modem.sendAT("+CIREG?");
+    if (modem.waitResponse(2000, resp) == 1)
+    {
+        // +CIREG: <n>,<reg_info>,...  -> reg_info (2nd field) == 1 means registered
+        int i = resp.indexOf("+CIREG:");
+        if (i >= 0)
+        {
+            int c1 = resp.indexOf(",", i);
+            if (c1 >= 0) s.imsRegistered = (resp.substring(c1 + 1).toInt() == 1);
+        }
+    }
+
+    // CEVDP 3 = IMS preferred, 4 = IMS only -> VoLTE on.
+    s.enabled = (s.cevdp == 3 || s.cevdp == 4);
+    return s;
+}
+
+void SimCommunication::requestVolte(bool on)
+{
+    volteTarget = on;
+    volteChangeRequested = true;
+}
+
+void SimCommunication::updateVolte()
+{
+    if (!modemReady || !volteChangeRequested) return;
+    volteChangeRequested = false;
+
+    feedWatchdog();
+    int cevdp = volteTarget ? 3 : 1; // 3 = IMS preferred (VoLTE), 1 = CS only (CSFB/2G)
+    Serial.printf("Setting VoLTE %s (AT+CEVDP=%d)\n", volteTarget ? "ON" : "OFF", cevdp);
+    modem.sendAT("+CEVDP=", cevdp);
+    modem.waitResponse(3000);
+
+    delay(500);
+    feedWatchdog();
+    lastVolteStatus = readVolteStatus();
+    volteResultReady = true;
+    Serial.printf("VoLTE now: cevdp=%d ims_avail=%d ims_reg=%d\n",
+                  lastVolteStatus.cevdp, lastVolteStatus.imsAvailable, lastVolteStatus.imsRegistered);
+}
+
+bool SimCommunication::volteResultPending() const
+{
+    return volteResultReady;
+}
+
+volte_status SimCommunication::takeVolteStatus()
+{
+    volteResultReady = false;
+    return lastVolteStatus;
+}
+
 // Polling cadence for check(). The live call state is polled often; SMS
 // storage is polled less frequently. SMS are detected by polling storage
 // rather than via the RI pin: the RI pulse on SMS arrival is far too brief

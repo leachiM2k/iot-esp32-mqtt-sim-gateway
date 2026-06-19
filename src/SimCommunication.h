@@ -30,6 +30,13 @@ typedef struct {
     int satellites;  // GPS satellites used
 } gps_result;
 
+typedef struct {
+    bool enabled;        // true = VoLTE preferred (CEVDP 3/4)
+    int cevdp;           // raw voice domain preference (1=CS only … 3=IMS pref, 4=IMS only)
+    bool imsAvailable;   // +CAVIMS (network offers IMS voice)
+    bool imsRegistered;  // +CIREG (device registered to IMS)
+} volte_status;
+
 class SimCommunication
 {
 public:
@@ -63,6 +70,16 @@ public:
     // Consume the pending result (clears the pending flag).
     gps_result takeGpsResult();
 
+    // --- VoLTE (voice domain preference), also async via loop() ---
+    // Request VoLTE on (IMS preferred) or off (CS/CSFB only). Flag only.
+    void requestVolte(bool on);
+    // Apply a pending VoLTE change. Call once per loop() on the loop task.
+    void updateVolte();
+    bool volteResultPending() const;
+    volte_status takeVolteStatus();
+    // Query the current VoLTE/IMS state directly (blocking AT, use on loop task).
+    volte_status readVolteStatus();
+
 private:
     void powerUpModem();
     // The startup steps below are bounded by timeouts and return false on
@@ -92,6 +109,12 @@ private:
     gps_result lastGpsResult = {false, 0.0, 0.0, 0.0f, 0};
     unsigned long gpsRequestStart = 0;
     unsigned long lastGpsPoll = 0;
+
+    // VoLTE toggle state.
+    volatile bool volteChangeRequested = false;
+    volatile bool volteTarget = false;
+    bool volteResultReady = false;
+    volte_status lastVolteStatus = {false, -1, false, false};
     // Pending incoming SMS ("sender:message"), emitted one per check() so each
     // becomes its own MQTT event even when several arrive in one poll.
     std::vector<String> smsQueue;

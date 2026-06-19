@@ -150,6 +150,29 @@ void publishGps(const gps_result &g)
     mqtt.publish(topic, json, g.fix);
 }
 
+void publishVolte(const volte_status &v)
+{
+    String macStr = getCurrentMacAddress();
+
+    JsonDocument doc;
+    doc["mac"] = macStr;
+    doc["time"] = getCurrentTimeISO8601();
+    doc["enabled"] = v.enabled;
+    doc["cevdp"] = v.cevdp;
+    doc["ims_available"] = v.imsAvailable;
+    doc["ims_registered"] = v.imsRegistered;
+
+    char json[200];
+    serializeJson(doc, json);
+    Serial.println(json);
+
+    char topic[60] = {0};
+    sprintf(topic, "%s/%s/volte", MQTT_EVENT_TOPIC, macStr.c_str());
+
+    // Retained: current VoLTE state stays available to new subscribers.
+    mqtt.publish(topic, json, true);
+}
+
 enum class Action
 {
     REBOOT,
@@ -159,6 +182,7 @@ enum class Action
     SMS,
     GPS,
     GPS_OFF,
+    VOLTE,
     UNKNOWN
 };
 
@@ -191,6 +215,10 @@ Action getAction(const char *action)
     else if (strcmp(action, "gpsoff") == 0)
     {
         return Action::GPS_OFF;
+    }
+    else if (strcmp(action, "volte") == 0)
+    {
+        return Action::VOLTE;
     }
     else
     {
@@ -300,6 +328,20 @@ void onDataReceived(const char *topic, int topic_len, const char *data, int data
         simCommunication.powerDownGps();
         break;
 
+    case Action::VOLTE:
+        {
+            // {"action":"volte","enable":true|false}
+            if (!doc["enable"].is<bool>())
+            {
+                Serial.println("volte action requires boolean 'enable' field");
+                break;
+            }
+            bool enable = doc["enable"];
+            Serial.printf("VoLTE %s requested.\n", enable ? "ON" : "OFF");
+            simCommunication.requestVolte(enable);
+        }
+        break;
+
     default:
         break;
     }
@@ -364,6 +406,9 @@ void setup()
     // Publish the initial call state (retained) so a fresh subscriber sees the
     // current status right away instead of waiting for the first call.
     publishCallStatus(simCommunication.getCallStatus().c_str());
+
+    // Publish the current VoLTE/IMS state (retained) once at boot.
+    publishVolte(simCommunication.readVolteStatus());
 }
 
 void loop()
@@ -397,6 +442,13 @@ void loop()
     if (simCommunication.gpsResultPending())
     {
         publishGps(simCommunication.takeGpsResult());
+    }
+
+    // Apply pending VoLTE toggle and publish the resulting state.
+    simCommunication.updateVolte();
+    if (simCommunication.volteResultPending())
+    {
+        publishVolte(simCommunication.takeVolteStatus());
     }
 
     if (SerialAT.available())

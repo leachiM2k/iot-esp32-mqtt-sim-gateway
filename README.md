@@ -144,6 +144,18 @@ GNSS is kept on after a request so later fixes come faster.
 ```
 Powers GNSS off to save energy (`AT+CGNSSPWR=0`).
 
+#### Toggle VoLTE
+```json
+{
+  "action": "volte",
+  "enable": true
+}
+```
+Sets the modem's voice domain preference: `enable:true` → `AT+CEVDP=3` (IMS
+preferred = VoLTE, voice over LTE with data kept alive); `enable:false` →
+`AT+CEVDP=1` (CS only → CSFB to 2G, data suspended during a call). The resulting
+state is published on the `/volte` event topic.
+
 > **Note:** A `sendUSSD()` method exists in the firmware but is currently **not**
 > wired to any MQTT command, so there is no `ussd` action yet.
 
@@ -207,6 +219,20 @@ is published **retained** (last known position); a no-fix reply is transient.
 }
 ```
 When there is no fix yet: `{ "mac": "...", "time": "...", "fix": false }`.
+
+#### VoLTE State — `esp32/events/<MAC>/volte`
+Current voice-domain / IMS state. Published once at boot and after each `volte`
+command. **Retained**.
+```json
+{
+  "mac": "AC1518B62E50",
+  "time": "2026-06-19T22:30:00Z",
+  "enabled": true,
+  "cevdp": 3,
+  "ims_available": true,
+  "ims_registered": true
+}
+```
 
 > **Note:** The `event` field is the numeric enum value
 > (`1` = call, `2` = call update, `3` = SMS).
