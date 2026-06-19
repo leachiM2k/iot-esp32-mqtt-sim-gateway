@@ -41,7 +41,6 @@ private:
     void setNetworkMode();
     void setNetworkApn();
     void awaitNetworkRegistration();
-    String readSMS(int index);
 
     // Poll the modem (+CLCC) for the live call state and report transitions.
     sim_com_check_result updateCallState();

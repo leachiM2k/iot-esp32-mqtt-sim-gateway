@@ -329,114 +329,97 @@ int SimCommunication::getSMSCount()
 String SimCommunication::readAllSMS()
 {
     String smsList = "";
-    
-    int smsCount = getSMSCount();
-    if (smsCount == 0)
+
+    // List every stored message in one shot. AT+CMGL returns each message with
+    // its real storage index, so we never miss messages sitting in
+    // non-contiguous slots (which iterating 1..count would skip).
+    modem.sendAT(GF("+CMGL=\"ALL\""));
+    String response;
+    int8_t res = modem.waitResponse(10000, response);
+    if (res != 1)
     {
-        Serial.println("No SMS messages to read.");
+        // Transient AT failure: leave messages in storage, retry on a later pass.
+        Serial.println("Failed to list SMS messages.");
         return smsList;
     }
 
-    // Read each SMS and print content
-    int index = 1;
-    String smsContent = "";
-
-    for (int index = 1; index <= smsCount; index++)
+    // Each entry looks like:
+    //   +CMGL: <index>,"<stat>","<sender>","<alpha>","<timestamp>"
+    //   <message body>
+    int search = 0;
+    while (true)
     {
-        smsContent = readSMS(index);
-        if (smsContent.length() > 0)
+        int headerStart = response.indexOf("+CMGL:", search);
+        if (headerStart == -1)
         {
-            Serial.println("SMS Content:");
-            Serial.println(smsContent);
-            // append to smsList
-            smsList += smsContent + "\n";
+            break;
         }
-    }
-    
-    return smsList;
-}
 
-String SimCommunication::readSMS(int index)
-{
-    String smsContent = "";
-
-    // Use AT+CMGR command to read SMS at specific index
-    modem.sendAT("+CMGR=", index);
-    String response;
-    int8_t res = modem.waitResponse(5000, response);
-
-    if (res != 1)
-    {
-        // Transient AT failure: leave the message in storage and retry on a
-        // later pass. Do NOT delete — we never actually retrieved it.
-        Serial.print("Failed to read SMS at index ");
-        Serial.println(index);
-        return smsContent;
-    }
-
-    // A successful response without a +CMGR: line means the slot is empty
-    // (storage indices are not contiguous after deletions). Nothing to do.
-    int cmgrIndex = response.indexOf("+CMGR:");
-    if (cmgrIndex == -1)
-    {
-        return smsContent;
-    }
-
-    // A message is present. Best-effort parse of the header and body.
-    // Format: +CMGR: "status","sender","","timestamp"
-    // Message content follows on the next line.
-    String sender = "";
-    String message = "";
-
-    // Sender is the second quoted field in the header.
-    int firstQuote = response.indexOf("\"", cmgrIndex);
-    int secondQuote = response.indexOf("\"", firstQuote + 1);
-    int thirdQuote = response.indexOf("\"", secondQuote + 1);
-    int fourthQuote = response.indexOf("\"", thirdQuote + 1);
-
-    if (firstQuote != -1 && secondQuote != -1 && thirdQuote != -1 && fourthQuote != -1)
-    {
-        sender = response.substring(thirdQuote + 1, fourthQuote);
-
-        // Message content is on the line after the header.
-        int newlineIndex = response.indexOf("\n", fourthQuote);
-        if (newlineIndex != -1)
+        // Storage index is the first field after "+CMGL:".
+        int idxStart = headerStart + 6;
+        int idxEnd = response.indexOf(",", idxStart);
+        if (idxEnd == -1)
         {
-            int messageStart = newlineIndex + 1;
-            int okIndex = response.indexOf("\nOK", messageStart);
-            if (okIndex == -1)
+            break; // malformed header, stop parsing
+        }
+        int smsIndex = response.substring(idxStart, idxEnd).toInt();
+
+        // Sender is the second quoted field (quotes 3 and 4 on the header line).
+        String sender = "";
+        int q1 = response.indexOf("\"", idxEnd);
+        int q2 = response.indexOf("\"", q1 + 1);
+        int q3 = response.indexOf("\"", q2 + 1);
+        int q4 = response.indexOf("\"", q3 + 1);
+        if (q1 != -1 && q2 != -1 && q3 != -1 && q4 != -1)
+        {
+            sender = response.substring(q3 + 1, q4);
+        }
+
+        // Body spans from the line after the header to the next entry (or OK).
+        String message = "";
+        int bodyStart = response.indexOf("\n", headerStart);
+        int nextHeader = -1;
+        if (bodyStart != -1)
+        {
+            bodyStart += 1;
+            nextHeader = response.indexOf("+CMGL:", bodyStart);
+            int bodyEnd;
+            if (nextHeader != -1)
             {
-                okIndex = response.length(); // fall back to end of buffer
+                bodyEnd = nextHeader;
             }
-            message = response.substring(messageStart, okIndex);
+            else
+            {
+                int okIndex = response.indexOf("\nOK", bodyStart);
+                bodyEnd = (okIndex != -1) ? okIndex : (int)response.length();
+            }
+            message = response.substring(bodyStart, bodyEnd);
             message.trim();
         }
+
+        if (sender.length() > 0 || message.length() > 0)
+        {
+            Serial.print("SMS from ");
+            Serial.print(sender);
+            Serial.print(": ");
+            Serial.println(message);
+            smsList += sender + ":" + message + "\n";
+        }
+
+        // Delete by real storage index regardless of how well the body parsed,
+        // so an unparseable message can never block the queue.
+        modem.sendAT("+CMGD=", smsIndex);
+        modem.waitResponse(5000);
+
+        // Advance past this entry; stop if there is no further header.
+        if (nextHeader == -1)
+        {
+            break;
+        }
+        search = nextHeader;
     }
 
-    if (sender.length() > 0 || message.length() > 0)
-    {
-        // Format: "sender:message"
-        smsContent = sender + ":" + message;
-
-        Serial.print("SMS from ");
-        Serial.print(sender);
-        Serial.print(": ");
-        Serial.println(message);
-    }
-    else
-    {
-        Serial.print("Could not parse SMS at index ");
-        Serial.print(index);
-        Serial.println(", deleting to avoid blocking the queue");
-    }
-
-    // Always delete a message we actually retrieved, even if parsing was
-    // incomplete. Otherwise an unparseable message would be re-read forever
-    // and block every message behind it.
-    modem.sendAT("+CMGD=", index);
-    modem.waitResponse(5000);
-
-    return smsContent;
+    return smsList;
 }
 
 // private methods
