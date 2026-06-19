@@ -63,7 +63,7 @@ void MqttClient::mqtt_event_handler(void *handler_args, esp_event_base_t base, i
     case MQTT_EVENT_CONNECTED:
         Serial.println("MQTT_EVENT_CONNECTED");
         self->isConnected = true;
-        self->subscribe(self->mqtt_command_topic);
+        self->subscribe(self->mqtt_command_topic.c_str());
         break;
     case MQTT_EVENT_DISCONNECTED:
         Serial.println("MQTT_EVENT_DISCONNECTED");

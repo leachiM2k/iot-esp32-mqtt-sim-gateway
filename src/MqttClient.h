@@ -25,8 +25,8 @@ private:
     const char *mqtt_server;
     const char *mqtt_user;
     const char *mqtt_password;
-    const char *mqtt_command_topic;
-    const char *mqtt_event_topic;
+    String mqtt_command_topic;
+    String mqtt_event_topic;
     esp_mqtt_client_handle_t client;
     OnDataCallback onDataCallback;
     bool isConnected; // Track connection status manually
