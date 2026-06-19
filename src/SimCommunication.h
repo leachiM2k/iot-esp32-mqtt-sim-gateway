@@ -49,9 +49,19 @@ public:
     // Drain all stored SMS into smsQueue; returns the number queued.
     int readAllSMS();
     void sendUSSD(const char *ussd);
-    // Power up GNSS (once) and try to obtain a position fix. Bounded so it
-    // never blocks long; returns fix=false if no fix yet (retry later).
-    gps_result requestGPS();
+
+    // --- GPS (asynchronous, driven from loop() so the modem UART is only ever
+    //     touched by one task) ---
+    // Request a position fix (just sets a flag; safe to call from any task).
+    void requestGps();
+    // Power GNSS down to save energy (flag; acted on in updateGps()).
+    void powerDownGps();
+    // Run the GNSS state machine. Call once per loop() on the loop task.
+    void updateGps();
+    // True when a fresh GPS result is ready to be published.
+    bool gpsResultPending() const;
+    // Consume the pending result (clears the pending flag).
+    gps_result takeGpsResult();
 
 private:
     void powerUpModem();
@@ -73,7 +83,15 @@ private:
     TinyGsm modem = TinyGsm(debugger);
     current_call_status currentCallStatus = NO_CALL;
     bool modemReady = false;
-    bool gpsEnabled = false;
+
+    // GPS state machine (all GNSS modem access happens in updateGps()).
+    bool gpsEnabled = false;            // GNSS currently powered
+    volatile bool gpsRequested = false; // a fix has been requested
+    volatile bool gpsPowerDownRequested = false;
+    bool gpsResultReady = false;        // lastGpsResult holds a fresh result
+    gps_result lastGpsResult = {false, 0.0, 0.0, 0.0f, 0};
+    unsigned long gpsRequestStart = 0;
+    unsigned long lastGpsPoll = 0;
     // Pending incoming SMS ("sender:message"), emitted one per check() so each
     // becomes its own MQTT event even when several arrive in one poll.
     std::vector<String> smsQueue;

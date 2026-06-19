@@ -126,15 +126,60 @@ static double toDecimalDegrees(float nmea)
     return nmea < 0 ? -dec : dec;
 }
 
-gps_result SimCommunication::requestGPS()
+static const unsigned long GPS_POLL_INTERVAL_MS = 2000;   // CGNSSINFO poll spacing
+static const unsigned long GPS_FIX_TIMEOUT_MS   = 90000;  // give up acquiring a fix
+
+void SimCommunication::requestGps()
 {
-    gps_result r = {false, 0.0, 0.0, 0.0f, 0};
+    // Only sets a flag — no modem access here, so this is safe to call from the
+    // MQTT task. The actual GNSS work happens in updateGps() on the loop task.
+    gpsRequested = true;
+}
+
+void SimCommunication::powerDownGps()
+{
+    gpsPowerDownRequested = true;
+}
+
+bool SimCommunication::gpsResultPending() const
+{
+    return gpsResultReady;
+}
+
+gps_result SimCommunication::takeGpsResult()
+{
+    gpsResultReady = false;
+    return lastGpsResult;
+}
+
+void SimCommunication::updateGps()
+{
     if (!modemReady)
     {
-        return r;
+        return;
     }
 
-    // Power up GNSS on first use and keep it on so later requests get a fix fast.
+    // Power-down request wins (saves energy when GPS is not needed).
+    if (gpsPowerDownRequested)
+    {
+        gpsPowerDownRequested = false;
+        gpsRequested = false;
+        if (gpsEnabled)
+        {
+            feedWatchdog();
+            modem.disableGPS();
+            gpsEnabled = false;
+            Serial.println("GNSS powered down.");
+        }
+        return;
+    }
+
+    if (!gpsRequested)
+    {
+        return;
+    }
+
+    // Power up GNSS once (may take a few seconds, but we own the modem here).
     if (!gpsEnabled)
     {
         Serial.println("Enabling GNSS...");
@@ -142,34 +187,49 @@ gps_result SimCommunication::requestGPS()
         if (!modem.enableGPS())
         {
             Serial.println("Failed to enable GNSS.");
-            return r;
+            lastGpsResult = {false, 0.0, 0.0, 0.0f, 0};
+            gpsResultReady = true;
+            gpsRequested = false;
+            return;
         }
         gpsEnabled = true;
+        gpsRequestStart = millis();
+        lastGpsPoll = 0;
     }
 
-    // Try a few times; a cold start may need a moment. Bounded (~5 s) and fed to
-    // the watchdog so it never causes a reset.
+    // Poll CGNSSINFO at a throttled rate until we get a fix or time out.
+    unsigned long now = millis();
+    if (now - lastGpsPoll < GPS_POLL_INTERVAL_MS)
+    {
+        return;
+    }
+    lastGpsPoll = now;
+
     uint8_t status = 0;
     float lat = 0, lon = 0, speed = 0, alt = 0;
     int vsat = 0, usat = 0;
-    for (int i = 0; i < 5; i++)
+    feedWatchdog();
+    if (modem.getGPS(&status, &lat, &lon, &speed, &alt, &vsat, &usat))
     {
-        feedWatchdog();
-        if (modem.getGPS(&status, &lat, &lon, &speed, &alt, &vsat, &usat))
-        {
-            r.fix = true;
-            r.lat = toDecimalDegrees(lat);
-            r.lon = toDecimalDegrees(lon);
-            r.altitude = alt;
-            r.satellites = vsat;
-            Serial.printf("GPS fix: %.6f, %.6f (%d sats)\n", r.lat, r.lon, r.satellites);
-            return r;
-        }
-        delay(1000);
+        lastGpsResult.fix = true;
+        lastGpsResult.lat = toDecimalDegrees(lat);
+        lastGpsResult.lon = toDecimalDegrees(lon);
+        lastGpsResult.altitude = alt;
+        lastGpsResult.satellites = vsat;
+        gpsResultReady = true;
+        gpsRequested = false;
+        Serial.printf("GPS fix: %.6f, %.6f (%d sats)\n",
+                      lastGpsResult.lat, lastGpsResult.lon, lastGpsResult.satellites);
+        return;
     }
 
-    Serial.println("No GPS fix yet.");
-    return r;
+    if (now - gpsRequestStart > GPS_FIX_TIMEOUT_MS)
+    {
+        Serial.println("GPS fix timeout (GNSS stays on; try again).");
+        lastGpsResult = {false, 0.0, 0.0, 0.0f, 0};
+        gpsResultReady = true;
+        gpsRequested = false;
+    }
 }
 
 // Polling cadence for check(). The live call state is polled often; SMS

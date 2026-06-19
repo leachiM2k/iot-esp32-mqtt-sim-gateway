@@ -158,6 +158,7 @@ enum class Action
     HANGUP,
     SMS,
     GPS,
+    GPS_OFF,
     UNKNOWN
 };
 
@@ -186,6 +187,10 @@ Action getAction(const char *action)
     else if (strcmp(action, "gps") == 0)
     {
         return Action::GPS;
+    }
+    else if (strcmp(action, "gpsoff") == 0)
+    {
+        return Action::GPS_OFF;
     }
     else
     {
@@ -285,11 +290,14 @@ void onDataReceived(const char *topic, int topic_len, const char *data, int data
         break;
 
     case Action::GPS:
-        {
-            Serial.println("Querying GPS position...");
-            gps_result g = simCommunication.requestGPS();
-            publishGps(g);
-        }
+        // Just request a fix; the loop task acquires it and publishes /gps.
+        Serial.println("GPS position requested.");
+        simCommunication.requestGps();
+        break;
+
+    case Action::GPS_OFF:
+        Serial.println("GPS power-down requested.");
+        simCommunication.powerDownGps();
         break;
 
     default:
@@ -375,12 +383,20 @@ void loop()
     if (result.event != SIM_COM_NOTHING)
     {
         sendSimComEvent(result);
-        
+
         // Only publish call status for call-related events
         if (result.event == SIM_COM_CALL || result.event == SIM_COM_CALL_UPDATE)
         {
             publishCallStatus(simCommunication.getCallStatus().c_str());
         }
+    }
+
+    // Drive the GNSS state machine here (loop task owns the modem UART) and
+    // publish a position once a request has completed.
+    simCommunication.updateGps();
+    if (simCommunication.gpsResultPending())
+    {
+        publishGps(simCommunication.takeGpsResult());
     }
 
     if (SerialAT.available())

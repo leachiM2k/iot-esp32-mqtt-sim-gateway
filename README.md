@@ -130,9 +130,19 @@ Send JSON commands to control the device:
   "action": "gps"
 }
 ```
-The board powers up GNSS (A7670E with GPS) and replies on the `/gps` event
-topic. GNSS is kept on after the first request so later fixes come faster; a
-cold start may need a moment / a clear view of the sky.
+Requests a position fix. Handled **asynchronously** — the command returns
+immediately and the board acquires the fix in the background (on the main loop,
+so it never blocks the device or the modem UART), then publishes it on the
+`/gps` event topic. A cold start may need a moment / a clear view of the sky.
+GNSS is kept on after a request so later fixes come faster.
+
+#### Power down GPS
+```json
+{
+  "action": "gpsoff"
+}
+```
+Powers GNSS off to save energy (`AT+CGNSSPWR=0`).
 
 > **Note:** A `sendUSSD()` method exists in the firmware but is currently **not**
 > wired to any MQTT command, so there is no `ussd` action yet.
