@@ -115,6 +115,63 @@ String SimCommunication::getModemName()
     return modem.getModemName();
 }
 
+// Convert an NMEA ddmm.mmmmmm coordinate (as returned by the modem) to decimal
+// degrees. The sign of the input is preserved (negative = S/W).
+static double toDecimalDegrees(float nmea)
+{
+    double v = nmea < 0 ? -(double)nmea : (double)nmea;
+    int deg = (int)(v / 100.0);
+    double minutes = v - deg * 100.0;
+    double dec = deg + minutes / 60.0;
+    return nmea < 0 ? -dec : dec;
+}
+
+gps_result SimCommunication::requestGPS()
+{
+    gps_result r = {false, 0.0, 0.0, 0.0f, 0};
+    if (!modemReady)
+    {
+        return r;
+    }
+
+    // Power up GNSS on first use and keep it on so later requests get a fix fast.
+    if (!gpsEnabled)
+    {
+        Serial.println("Enabling GNSS...");
+        feedWatchdog();
+        if (!modem.enableGPS())
+        {
+            Serial.println("Failed to enable GNSS.");
+            return r;
+        }
+        gpsEnabled = true;
+    }
+
+    // Try a few times; a cold start may need a moment. Bounded (~5 s) and fed to
+    // the watchdog so it never causes a reset.
+    uint8_t status = 0;
+    float lat = 0, lon = 0, speed = 0, alt = 0;
+    int vsat = 0, usat = 0;
+    for (int i = 0; i < 5; i++)
+    {
+        feedWatchdog();
+        if (modem.getGPS(&status, &lat, &lon, &speed, &alt, &vsat, &usat))
+        {
+            r.fix = true;
+            r.lat = toDecimalDegrees(lat);
+            r.lon = toDecimalDegrees(lon);
+            r.altitude = alt;
+            r.satellites = vsat;
+            Serial.printf("GPS fix: %.6f, %.6f (%d sats)\n", r.lat, r.lon, r.satellites);
+            return r;
+        }
+        delay(1000);
+    }
+
+    Serial.println("No GPS fix yet.");
+    return r;
+}
+
 // Polling cadence for check(). The live call state is polled often; SMS
 // storage is polled less frequently. SMS are detected by polling storage
 // rather than via the RI pin: the RI pulse on SMS arrival is far too brief

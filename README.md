@@ -124,6 +124,16 @@ Send JSON commands to control the device:
 }
 ```
 
+#### Query GPS position
+```json
+{
+  "action": "gps"
+}
+```
+The board powers up GNSS (A7670E with GPS) and replies on the `/gps` event
+topic. GNSS is kept on after the first request so later fixes come faster; a
+cold start may need a moment / a clear view of the sky.
+
 > **Note:** A `sendUSSD()` method exists in the firmware but is currently **not**
 > wired to any MQTT command, so there is no `ussd` action yet.
 
@@ -166,13 +176,33 @@ Published on call-related events and after `call`/`accept`/`hangup` commands.
 ```
 
 #### Device Started — `esp32/events/<MAC>/info`
-Plain-text status messages (not JSON) published during boot:
+Plain-text status messages (not JSON) published during boot. **Retained**, so a
+new subscriber immediately learns the board exists and its last status:
 - `Device started at 2025-11-03T10:15:00Z, initializing modem`
 - on success: `Modem ready: A7670E-FASE` (includes the detected modem variant)
 - on failure: `Modem initialization failed` (device continues in degraded mode)
 
+#### GPS Position — `esp32/events/<MAC>/gps`
+Reply to a `gps` command. Coordinates are in decimal degrees. A successful fix
+is published **retained** (last known position); a no-fix reply is transient.
+```json
+{
+  "mac": "AC1518B62E50",
+  "time": "2026-06-19T22:00:00Z",
+  "fix": true,
+  "lat": 52.516275,
+  "lon": 13.377704,
+  "alt": 38.5,
+  "satellites": 9
+}
+```
+When there is no fix yet: `{ "mac": "...", "time": "...", "fix": false }`.
+
 > **Note:** The `event` field is the numeric enum value
 > (`1` = call, `2` = call update, `3` = SMS).
+>
+> `/info` and `/callstatus` are published as retained messages; `/sms`,
+> `/checkresult` and a no-fix `/gps` are transient.
 
 ## First Run
 

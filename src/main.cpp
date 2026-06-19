@@ -121,6 +121,35 @@ void publishCallStatus(const char *status)
     mqtt.publish(topic, json, true);
 }
 
+void publishGps(const gps_result &g)
+{
+    String macStr = getCurrentMacAddress();
+
+    JsonDocument doc;
+    doc["mac"] = macStr;
+    doc["time"] = getCurrentTimeISO8601();
+    doc["fix"] = g.fix;
+    if (g.fix)
+    {
+        // serialized() keeps full decimal precision for the coordinates.
+        doc["lat"] = serialized(String(g.lat, 6));
+        doc["lon"] = serialized(String(g.lon, 6));
+        doc["alt"] = g.altitude;
+        doc["satellites"] = g.satellites;
+    }
+
+    char json[256];
+    serializeJson(doc, json);
+    Serial.println(json);
+
+    char topic[60] = {0};
+    sprintf(topic, "%s/%s/gps", MQTT_EVENT_TOPIC, macStr.c_str());
+
+    // Retain only a real fix, so the last known position stays available to new
+    // subscribers; a "no fix" reply is transient and must not overwrite it.
+    mqtt.publish(topic, json, g.fix);
+}
+
 enum class Action
 {
     REBOOT,
@@ -128,6 +157,7 @@ enum class Action
     ACCEPT,
     HANGUP,
     SMS,
+    GPS,
     UNKNOWN
 };
 
@@ -152,6 +182,10 @@ Action getAction(const char *action)
     else if (strcmp(action, "sms") == 0)
     {
         return Action::SMS;
+    }
+    else if (strcmp(action, "gps") == 0)
+    {
+        return Action::GPS;
     }
     else
     {
@@ -247,6 +281,14 @@ void onDataReceived(const char *topic, int topic_len, const char *data, int data
             } else {
                 Serial.println("SMS action requires 'number' and 'message' fields");
             }
+        }
+        break;
+
+    case Action::GPS:
+        {
+            Serial.println("Querying GPS position...");
+            gps_result g = simCommunication.requestGPS();
+            publishGps(g);
         }
         break;
 

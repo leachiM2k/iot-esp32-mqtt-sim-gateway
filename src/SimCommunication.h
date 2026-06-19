@@ -22,6 +22,14 @@ typedef enum {
     ESTABLISHED
 } current_call_status;
 
+typedef struct {
+    bool fix;        // true if a 2D/3D position fix was obtained
+    double lat;      // decimal degrees (negative = south)
+    double lon;      // decimal degrees (negative = west)
+    float altitude;  // meters above MSL
+    int satellites;  // GPS satellites used
+} gps_result;
+
 class SimCommunication
 {
 public:
@@ -41,6 +49,9 @@ public:
     // Drain all stored SMS into smsQueue; returns the number queued.
     int readAllSMS();
     void sendUSSD(const char *ussd);
+    // Power up GNSS (once) and try to obtain a position fix. Bounded so it
+    // never blocks long; returns fix=false if no fix yet (retry later).
+    gps_result requestGPS();
 
 private:
     void powerUpModem();
@@ -62,6 +73,7 @@ private:
     TinyGsm modem = TinyGsm(debugger);
     current_call_status currentCallStatus = NO_CALL;
     bool modemReady = false;
+    bool gpsEnabled = false;
     // Pending incoming SMS ("sender:message"), emitted one per check() so each
     // becomes its own MQTT event even when several arrive in one poll.
     std::vector<String> smsQueue;
