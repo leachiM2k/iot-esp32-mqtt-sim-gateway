@@ -67,35 +67,6 @@ bool ringDetected()
 
 sim_com_check_result SimCommunication::check()
 {
-    // Check for incoming SMS notifications (+CMTI) - but limit frequency
-    static unsigned long lastSMSCheck = 0;
-    if (SerialAT.available() && (millis() - lastSMSCheck > 500)) {
-        lastSMSCheck = millis();
-        
-        String response = SerialAT.readString();
-        
-        // Check for SMS notification: +CMTI: "SM",index
-        if (response.indexOf("+CMTI:") != -1) {
-            Serial.println("SMS notification received: " + response);
-            
-            // Extract SMS index from +CMTI notification
-            int cmtiIndex = response.indexOf("+CMTI:");
-            if (cmtiIndex != -1) {
-                int commaPos = response.indexOf(",", cmtiIndex);
-                if (commaPos != -1) {
-                    int smsIndex = response.substring(commaPos + 1).toInt();
-                    
-                    // Read the specific SMS
-                    String smsContent = readSMS(smsIndex);
-                    if (smsContent.length() > 0) {
-                        Serial.println("New SMS received: " + smsContent);
-                        return {SIM_COM_SMS, smsContent};
-                    }
-                }
-            }
-        }
-    }
-
     if (ringDetected())
     {
         // Check if it is an incoming SMS
@@ -338,64 +309,83 @@ String SimCommunication::readAllSMS()
 String SimCommunication::readSMS(int index)
 {
     String smsContent = "";
-    
+
     // Use AT+CMGR command to read SMS at specific index
     modem.sendAT("+CMGR=", index);
     String response;
     int8_t res = modem.waitResponse(5000, response);
-    
-    if (res == 1 && response.indexOf("OK") != -1)
+
+    if (res != 1)
     {
-        // Parse the SMS response
-        // Format: +CMGR: "status","sender","","timestamp"
-        // Message content follows on next line
-        
-        int cmgrIndex = response.indexOf("+CMGR:");
-        if (cmgrIndex != -1)
+        // Transient AT failure: leave the message in storage and retry on a
+        // later pass. Do NOT delete — we never actually retrieved it.
+        Serial.print("Failed to read SMS at index ");
+        Serial.println(index);
+        return smsContent;
+    }
+
+    // A successful response without a +CMGR: line means the slot is empty
+    // (storage indices are not contiguous after deletions). Nothing to do.
+    int cmgrIndex = response.indexOf("+CMGR:");
+    if (cmgrIndex == -1)
+    {
+        return smsContent;
+    }
+
+    // A message is present. Best-effort parse of the header and body.
+    // Format: +CMGR: "status","sender","","timestamp"
+    // Message content follows on the next line.
+    String sender = "";
+    String message = "";
+
+    // Sender is the second quoted field in the header.
+    int firstQuote = response.indexOf("\"", cmgrIndex);
+    int secondQuote = response.indexOf("\"", firstQuote + 1);
+    int thirdQuote = response.indexOf("\"", secondQuote + 1);
+    int fourthQuote = response.indexOf("\"", thirdQuote + 1);
+
+    if (firstQuote != -1 && secondQuote != -1 && thirdQuote != -1 && fourthQuote != -1)
+    {
+        sender = response.substring(thirdQuote + 1, fourthQuote);
+
+        // Message content is on the line after the header.
+        int newlineIndex = response.indexOf("\n", fourthQuote);
+        if (newlineIndex != -1)
         {
-            // Find the sender number (second quoted string)
-            int firstQuote = response.indexOf("\"", cmgrIndex);
-            int secondQuote = response.indexOf("\"", firstQuote + 1);
-            int thirdQuote = response.indexOf("\"", secondQuote + 1);
-            int fourthQuote = response.indexOf("\"", thirdQuote + 1);
-            
-            if (firstQuote != -1 && secondQuote != -1 && thirdQuote != -1 && fourthQuote != -1)
+            int messageStart = newlineIndex + 1;
+            int okIndex = response.indexOf("\nOK", messageStart);
+            if (okIndex == -1)
             {
-                String sender = response.substring(thirdQuote + 1, fourthQuote);
-                
-                // Find the message content (after the header line)
-                int newlineIndex = response.indexOf("\n", fourthQuote);
-                if (newlineIndex != -1)
-                {
-                    int messageStart = newlineIndex + 1;
-                    int okIndex = response.indexOf("\nOK", messageStart);
-                    if (okIndex != -1)
-                    {
-                        String message = response.substring(messageStart, okIndex);
-                        message.trim();
-                        
-                        // Format: "sender:message"
-                        smsContent = sender + ":" + message;
-                        
-                        Serial.print("SMS from ");
-                        Serial.print(sender);
-                        Serial.print(": ");
-                        Serial.println(message);
-                        
-                        // Delete the SMS after reading to prevent memory issues
-                        modem.sendAT("+CMGD=", index);
-                        modem.waitResponse(5000);
-                    }
-                }
+                okIndex = response.length(); // fall back to end of buffer
             }
+            message = response.substring(messageStart, okIndex);
+            message.trim();
         }
+    }
+
+    if (sender.length() > 0 || message.length() > 0)
+    {
+        // Format: "sender:message"
+        smsContent = sender + ":" + message;
+
+        Serial.print("SMS from ");
+        Serial.print(sender);
+        Serial.print(": ");
+        Serial.println(message);
     }
     else
     {
-        Serial.print("Failed to read SMS at index ");
-        Serial.println(index);
+        Serial.print("Could not parse SMS at index ");
+        Serial.print(index);
+        Serial.println(", deleting to avoid blocking the queue");
     }
-    
+
+    // Always delete a message we actually retrieved, even if parsing was
+    // incomplete. Otherwise an unparseable message would be re-read forever
+    // and block every message behind it.
+    modem.sendAT("+CMGD=", index);
+    modem.waitResponse(5000);
+
     return smsContent;
 }
 
