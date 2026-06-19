@@ -31,8 +31,7 @@ Open <http://127.0.0.1:8787>.
 | Variable | Purpose |
 |----------|---------|
 | `MQTT_URL` | Broker TCP URL (e.g. `mqtt://dev.rotmanov.de:1883`) |
-| `MQTT_USERNAME` / `MQTT_PASSWORD` | Receives events (a read-only user is enough) |
-| `MQTT_CMD_USERNAME` / `MQTT_CMD_PASSWORD` | **Required to send commands** — needs publish rights on `esp32/commands/<MAC>`. If omitted, commands go through the events user and won't reach the board if that user is read-only. |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | MQTT user for the bridge — receives events and sends commands, so it needs publish rights on `esp32/commands/<MAC>` |
 | `PORT` | Local web server port (default 8787) |
 | `EVENTS_BASE` / `COMMANDS_BASE` | Topic bases (match the firmware's `constants.h`) |
 

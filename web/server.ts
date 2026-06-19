@@ -21,13 +21,10 @@ const MQTT_URL = Deno.env.get("MQTT_URL") ?? "mqtt://dev.rotmanov.de:1883";
 const EVENTS_BASE = Deno.env.get("EVENTS_BASE") ?? "esp32/events";
 const COMMANDS_BASE = Deno.env.get("COMMANDS_BASE") ?? "esp32/commands";
 
-const SUB_USER = Deno.env.get("MQTT_USERNAME");
-const SUB_PASS = Deno.env.get("MQTT_PASSWORD");
-// Optional: a separate user with publish rights for commands. If unset, the
-// commands are published through the (read-only) events connection — which
-// will silently fail on a broker that denies it publish access.
-const PUB_USER = Deno.env.get("MQTT_CMD_USERNAME");
-const PUB_PASS = Deno.env.get("MQTT_CMD_PASSWORD");
+// One user for both receiving events and sending commands; it needs publish
+// rights on COMMANDS_BASE/<MAC>.
+const MQTT_USER = Deno.env.get("MQTT_USERNAME");
+const MQTT_PASS = Deno.env.get("MQTT_PASSWORD");
 
 // --- Command whitelist (mirrors the firmware's getAction()) -----------------
 const ALLOWED_ACTIONS = new Set(["reboot", "call", "accept", "hangup", "sms"]);
@@ -46,47 +43,37 @@ function broadcast(obj: unknown) {
   }
 }
 
-// --- MQTT: events (subscribe) ----------------------------------------------
-const subClient = mqtt.connect(MQTT_URL, {
-  username: SUB_USER,
-  password: SUB_PASS,
+// --- MQTT connection (events + commands) -----------------------------------
+const client = mqtt.connect(MQTT_URL, {
+  username: MQTT_USER,
+  password: MQTT_PASS,
   reconnectPeriod: 3000,
-  clientId: "espbridge-sub-" + Math.random().toString(16).slice(2, 10),
+  clientId: "espbridge-" + Math.random().toString(16).slice(2, 10),
 });
 
-// MQTT: commands (publish). Separate connection only if dedicated creds given.
-const pubClient = PUB_USER
-  ? mqtt.connect(MQTT_URL, {
-      username: PUB_USER,
-      password: PUB_PASS,
-      reconnectPeriod: 3000,
-      clientId: "espbridge-pub-" + Math.random().toString(16).slice(2, 10),
-    })
-  : subClient;
-
-subClient.on("connect", () => {
+client.on("connect", () => {
   brokerConnected = true;
-  console.log(`[mqtt] connected to ${MQTT_URL} as ${SUB_USER ?? "(anonymous)"}`);
-  subClient.subscribe(`${EVENTS_BASE}/#`, { qos: 0 }, (err) => {
+  console.log(`[mqtt] connected to ${MQTT_URL} as ${MQTT_USER ?? "(anonymous)"}`);
+  client.subscribe(`${EVENTS_BASE}/#`, { qos: 0 }, (err) => {
     if (err) console.error("[mqtt] subscribe error:", err.message);
     else console.log(`[mqtt] subscribed to ${EVENTS_BASE}/#`);
   });
   broadcast({ type: "broker", connected: true });
 });
 
-subClient.on("reconnect", () => console.log("[mqtt] reconnecting…"));
-subClient.on("close", () => {
+client.on("reconnect", () => console.log("[mqtt] reconnecting…"));
+client.on("close", () => {
   if (brokerConnected) {
     brokerConnected = false;
     broadcast({ type: "broker", connected: false });
   }
 });
-subClient.on("error", (e: Error) => {
+client.on("error", (e: Error) => {
   console.error("[mqtt] error:", e.message);
   broadcast({ type: "broker", connected: false, error: e.message });
 });
 
-subClient.on("message", (topic: string, payloadBuf: Uint8Array) => {
+client.on("message", (topic: string, payloadBuf: Uint8Array) => {
   const raw = new TextDecoder().decode(payloadBuf);
   // topic = <EVENTS_BASE>/<MAC>/<sub>
   const parts = topic.split("/");
@@ -112,7 +99,7 @@ subClient.on("message", (topic: string, payloadBuf: Uint8Array) => {
 // --- Command handling -------------------------------------------------------
 function publishCommand(mac: string, cmd: Record<string, unknown>): boolean {
   const topic = `${COMMANDS_BASE}/${mac}`;
-  pubClient.publish(topic, JSON.stringify(cmd), { qos: 1 }, (err) => {
+  client.publish(topic, JSON.stringify(cmd), { qos: 1 }, (err) => {
     if (err) console.error("[mqtt] publish error:", err?.message);
   });
   console.log(`[cmd] -> ${topic} ${JSON.stringify(cmd)}`);
@@ -210,10 +197,4 @@ Deno.serve({ port: PORT, hostname: "127.0.0.1" }, (req) => {
 });
 
 console.log(`[http] UI on http://127.0.0.1:${PORT}  (broker: ${MQTT_URL})`);
-if (!SUB_USER) console.warn("[warn] MQTT_USERNAME not set — is .env loaded? Run via 'deno task start'.");
-if (!PUB_USER) {
-  console.warn(
-    "[warn] No MQTT_CMD_USERNAME set: commands publish via the events user. " +
-      "If that user is read-only, sending (call/accept/hangup/sms/reboot) will not reach the board.",
-  );
-}
+if (!MQTT_USER) console.warn("[warn] MQTT_USERNAME not set — is .env loaded? Run via 'deno task start'.");

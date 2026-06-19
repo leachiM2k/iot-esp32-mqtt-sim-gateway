@@ -152,7 +152,7 @@
     <ul class="note">
       <li>❌ <b>USSD senden</b> — die Firmware hat <code>sendUSSD()</code>, es ist aber <b>nicht</b> als MQTT-Kommando verdrahtet → derzeit nicht nutzbar.</li>
       <li>ℹ️ <b>„Ablehnen" und „Auflegen" sind dasselbe Kommando</b> (<code>hangup</code> / <code>AT+CHUP</code>): die Firmware kennt kein separates Reject.</li>
-      <li>ℹ️ <b>Senden erfordert Publish-Rechte</b> auf <code>esp32/commands/&lt;MAC&gt;</code>. Der <code>…readonly</code>-User kann nur empfangen — für Befehle einen schreibberechtigten User in der <code>.env</code> (<code>MQTT_CMD_*</code>) hinterlegen.</li>
+      <li>ℹ️ <b>Senden erfordert Publish-Rechte</b> auf <code>esp32/commands/&lt;MAC&gt;</code>. Der in der <code>.env</code> hinterlegte MQTT-User muss diese Rechte haben.</li>
     </ul>
   </section>
 </main>
