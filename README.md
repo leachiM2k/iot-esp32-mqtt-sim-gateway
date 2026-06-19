@@ -25,8 +25,9 @@ Flash / 8 MB PSRAM). The board build macro is `LILYGO_T_CALL_A7670_V1_1`
 
 The board ships with one of several A7670 modem variants. This project targets the
 **A7670E** (Europe bands: LTE-FDD B1/B3/B5/B7/B8/B20, GSM 900/1800) with voice +
-SMS support — i.e. an `A7670E-FASE` (with GPS) or `A7670E-LASE` (without GPS). GPS
-is not used by the firmware.
+SMS support. The unit in use is confirmed (via boot log) as **A7670E-FASE**
+(firmware revision `A7670M7_V1.11.1`) — the variant with GPS, voice and SMS. GPS is
+not used by the firmware.
 
 To find your exact variant, watch the serial console at boot for the `Model Name:`
 line (from `getModemName()`) or send `AT+SIMCOMATI`. The model is also published to

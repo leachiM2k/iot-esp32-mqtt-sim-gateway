@@ -92,11 +92,11 @@ Die README ist teils ungenau — der **Code ist die Wahrheit**:
 [LilyGo-Modem-Series](https://github.com/Xinyuan-LilyGO/LilyGo-Modem-Series)
 (V1.0 und das Standalone-T-A7670 haben andere Pins / `RESET_LEVEL HIGH`).
 
-**Modem**: A7670**E** (Europa-Bänder, Voice + SMS), passend zu sipgate/DE. Konkret
-`A7670E-FASE` oder `-LASE` (Unterschied nur GPS, das die Firmware nicht nutzt —
-`MODEM_GPS_ENABLE_GPIO (-1)`). Die exakte Variante steht im Boot-Log
-(`Model Name:` aus `getModemName()` / `AT+SIMCOMATI`) und wird beim Start aufs
-MQTT-`/info`-Topic publiziert (`Modem ready: <modell>`).
+**Modem**: A7670**E** (Europa-Bänder, Voice + SMS), passend zu sipgate/DE. Per
+Boot-Log bestätigt als **A7670E-FASE** (Revision `A7670M7_V1.11.1`) — mit GPS, das
+die Firmware aber nicht nutzt (`MODEM_GPS_ENABLE_GPIO (-1)`). Die Variante steht im
+Boot-Log (`Model Name:` aus `getModemName()` / `AT+SIMCOMATI`) und wird beim Start
+aufs MQTT-`/info`-Topic publiziert (`Modem ready: <modell>`).
 
 **Pins (aus `constants.h`)**: Modem-UART TX=27 RX=26 · PWRKEY=4 · DTR=32 · RESET=5
 (aktiv LOW) · RING=33 · LED/PowerOn=13. Reset-Sequenz und PWRKEY-Toggle stecken in
