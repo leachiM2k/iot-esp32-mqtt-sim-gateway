@@ -1,6 +1,8 @@
 #ifndef SIMCOMMUNICATION_H
 #define SIMCOMMUNICATION_H
 
+#include <vector>
+
 typedef enum {
     SIM_COM_NOTHING,
     SIM_COM_CALL,
@@ -36,7 +38,8 @@ public:
     bool hangupCall();
     void sendSMS(const char *number, const char *message);
     int getSMSCount();
-    String readAllSMS();
+    // Drain all stored SMS into smsQueue; returns the number queued.
+    int readAllSMS();
     void sendUSSD(const char *ussd);
 
 private:
@@ -59,6 +62,9 @@ private:
     TinyGsm modem = TinyGsm(debugger);
     current_call_status currentCallStatus = NO_CALL;
     bool modemReady = false;
+    // Pending incoming SMS ("sender:message"), emitted one per check() so each
+    // becomes its own MQTT event even when several arrive in one poll.
+    std::vector<String> smsQueue;
 };
 
 #endif // SIMCOMMUNICATION_H

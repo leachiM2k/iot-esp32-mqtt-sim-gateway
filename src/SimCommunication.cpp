@@ -132,17 +132,27 @@ sim_com_check_result SimCommunication::check()
         return {SIM_COM_NOTHING, ""};
     }
 
-    // Poll the SIM's SMS storage periodically, independent of the RI pin.
+    // Emit any queued SMS one per call, so each becomes its own MQTT event.
+    if (!smsQueue.empty())
+    {
+        String sms = smsQueue.front();
+        smsQueue.erase(smsQueue.begin());
+        return {SIM_COM_SMS, sms};
+    }
+
+    // Poll the SIM's SMS storage periodically (independent of the RI pin),
+    // draining all stored messages into the queue.
     static unsigned long lastSmsPoll = 0;
     unsigned long now = millis();
     if (now - lastSmsPoll >= SMS_POLL_INTERVAL_MS)
     {
         lastSmsPoll = now;
-        String smsContent = readAllSMS();
-        if (smsContent.length() > 0)
+        if (readAllSMS() > 0)
         {
             Serial.println("Incoming SMS detected.");
-            return {SIM_COM_SMS, smsContent};
+            String sms = smsQueue.front();
+            smsQueue.erase(smsQueue.begin());
+            return {SIM_COM_SMS, sms};
         }
     }
 
@@ -459,9 +469,9 @@ static String decodeSmsField(const String &s)
     return out;
 }
 
-String SimCommunication::readAllSMS()
+int SimCommunication::readAllSMS()
 {
-    String smsList = "";
+    int count = 0;
 
     // Read in UCS2 so non-GSM characters (umlauts, emoji, ...) survive: the
     // modem then returns the header fields and body as UTF-16BE hex, which we
@@ -480,7 +490,7 @@ String SimCommunication::readAllSMS()
     {
         // Transient AT failure: leave messages in storage, retry on a later pass.
         Serial.println("Failed to list SMS messages.");
-        return smsList;
+        return count;
     }
 
     // Each entry looks like:
@@ -545,7 +555,8 @@ String SimCommunication::readAllSMS()
             Serial.print(sender);
             Serial.print(": ");
             Serial.println(message);
-            smsList += sender + ":" + message + "\n";
+            smsQueue.push_back(sender + ":" + message);
+            count++;
         }
 
         // Delete by real storage index regardless of how well the body parsed,
@@ -561,7 +572,7 @@ String SimCommunication::readAllSMS()
         search = nextHeader;
     }
 
-    return smsList;
+    return count;
 }
 
 // private methods
