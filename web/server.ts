@@ -43,6 +43,16 @@ function broadcast(obj: unknown) {
   }
 }
 
+// Record a board MAC and notify browsers. Boards are discovered from their
+// retained status messages, which the broker replays on every (re)subscribe —
+// so the picker repopulates by itself after a bridge restart, no persistence.
+function rememberMac(mac: string): boolean {
+  if (!MAC_RE.test(mac) || macs.has(mac)) return false;
+  macs.add(mac);
+  broadcast({ type: "macs", macs: [...macs] });
+  return true;
+}
+
 // --- MQTT connection (events + commands) -----------------------------------
 const client = mqtt.connect(MQTT_URL, {
   username: MQTT_USER,
@@ -81,10 +91,7 @@ client.on("message", (topic: string, payloadBuf: Uint8Array) => {
   const mac = parts[2];
   const sub = parts.slice(3).join("/");
 
-  if (MAC_RE.test(mac) && !macs.has(mac)) {
-    macs.add(mac);
-    broadcast({ type: "macs", macs: [...macs] });
-  }
+  rememberMac(mac);
 
   let payload: unknown = raw;
   try {

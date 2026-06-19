@@ -37,7 +37,12 @@ Open <http://127.0.0.1:8787>.
 
 ## Features
 
-The board MAC is auto-discovered from incoming events and selectable in the header.
+Boards are auto-discovered: the firmware publishes its `/info` and `/callstatus`
+as **retained** messages, which the broker replays to every new subscriber. So
+the board picker in the header repopulates on its own after a bridge restart,
+without the board having to republish. (A 1-day expiry on those retained values
+needs MQTT 5 and is pending the firmware framework update; for now they live
+until overwritten on the next boot / status change.)
 
 **Receive:** device/modem status (`/info`), call status (`/callstatus`), incoming
 caller number (`/checkresult`), received SMS list (`/sms`), full event log.
