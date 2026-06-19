@@ -40,8 +40,11 @@ void MqttClient::reconnect()
 
 void MqttClient::connect()
 {
-    esp_mqtt_client_start(client);
+    // Register the event handler *before* starting the client, otherwise a
+    // fast-connecting broker can fire MQTT_EVENT_CONNECTED before the handler
+    // is installed — losing the event and never subscribing.
     esp_mqtt_client_register_event(client, MQTT_EVENT_ANY, &MqttClient::mqtt_event_handler, this);
+    esp_mqtt_client_start(client);
 }
 
 void MqttClient::publish(const char *topic, const char *message)
