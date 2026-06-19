@@ -122,6 +122,22 @@
   </section>
 
   <section class="card full">
+    <h2>GPS-Position</h2>
+    <div class="row">
+      <button class="primary" id="btnGps">GPS abfragen</button>
+      <span id="gpsStatus" class="note"></span>
+    </div>
+    <div id="gpsResult" style="display:none; margin-top:10px">
+      <div class="row" style="justify-content:space-between">
+        <span id="gpsCoords" style="font-family:ui-monospace,monospace"></span>
+        <a id="gpsLink" target="_blank" rel="noopener">In OpenStreetMap öffnen ↗</a>
+      </div>
+      <iframe id="gpsMap" title="Karte" loading="lazy"
+        style="width:100%; height:340px; border:1px solid var(--line); border-radius:8px; margin-top:8px"></iframe>
+    </div>
+  </section>
+
+  <section class="card full">
     <h2>Empfangene SMS</h2>
     <table>
       <thead><tr><th style="width:160px">Empfangen</th><th style="width:170px">Absender</th><th>Nachricht</th></tr></thead>
@@ -148,6 +164,7 @@
       <li>➕ Ausgehenden Anruf starten — Kommando <code>call</code> <span class="muted">(in deiner Liste nicht erwähnt, per MQTT möglich)</span></li>
       <li>➕ Board neustarten — Kommando <code>reboot</code> <span class="muted">(per MQTT möglich)</span></li>
       <li>➕ Eingehende Anrufernummer — Topic <code>/checkresult</code> (event 1) <span class="muted">(im Anruf-Banner)</span></li>
+      <li>➕ GPS-Position abfragen — Kommando <code>gps</code> → Topic <code>/gps</code> <span class="muted">(nur A7670E-FASE mit GNSS; Anzeige als OpenStreetMap-Karte)</span></li>
     </ul>
     <p class="note"><b>Nicht integriert / Einschränkungen:</b></p>
     <ul class="note">
@@ -251,7 +268,25 @@ function onEvent(m) {
       break;
     }
     case "sms": addSms(m.payload, m.raw, t); break;
+    case "gps": showGps(m.payload); break;
   }
+}
+
+function showGps(p) {
+  if (!p || !p.fix) {
+    $("gpsStatus").textContent = "Kein Fix — bitte erneut versuchen (freie Sicht zum Himmel nötig, Kaltstart kann dauern).";
+    return;
+  }
+  const lat = Number(p.lat), lon = Number(p.lon);
+  const sats = p.satellites ?? "?";
+  const alt = p.alt != null ? `${p.alt} m` : "?";
+  $("gpsStatus").textContent = `Fix • ${sats} Satelliten • ${alt}`;
+  $("gpsCoords").textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+  $("gpsLink").href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
+  const d = 0.004;
+  const bbox = `${lon - d}%2C${lat - d}%2C${lon + d}%2C${lat + d}`;
+  $("gpsMap").src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lon}`;
+  $("gpsResult").style.display = "block";
 }
 
 let incomingNumber = "";
@@ -305,6 +340,11 @@ document.querySelectorAll("button[data-action]").forEach((btn) => {
       sendCommand({ action });
     }
   });
+});
+
+$("btnGps").addEventListener("click", () => {
+  $("gpsStatus").textContent = "Position wird abgefragt… (GNSS braucht ggf. einen Moment)";
+  sendCommand({ action: "gps" });
 });
 
 $("btnSendSms").addEventListener("click", () => {

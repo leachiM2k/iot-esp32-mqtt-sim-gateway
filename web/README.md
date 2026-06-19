@@ -11,8 +11,8 @@ Browser ──WS(JSON)──> Deno bridge (127.0.0.1) ──TCP MQTT──> brok
 
 The bridge subscribes to `esp32/events/#`, forwards events to the browser, and
 publishes only a fixed whitelist of commands (`reboot`, `call`, `accept`,
-`hangup`, `sms`) — it builds the topic/payload itself, so the browser cannot
-publish arbitrary MQTT messages.
+`hangup`, `sms`, `gps`) — it builds the topic/payload itself, so the browser
+cannot publish arbitrary MQTT messages.
 
 ## Setup
 
@@ -48,7 +48,8 @@ until overwritten on the next boot / status change.)
 caller number (`/checkresult`), received SMS list (`/sms`), full event log.
 
 **Send:** answer (`accept`) / reject or hang up (`hangup`), start an outgoing call
-(`call`), send SMS (`sms`), reboot the board (`reboot`).
+(`call`), send SMS (`sms`), query the GPS position (`gps`, shown on an
+OpenStreetMap map), reboot the board (`reboot`).
 
 ### Not available / caveats
 - **USSD**: the firmware has `sendUSSD()` but it is not wired to an MQTT command,
