@@ -177,6 +177,14 @@ void onDataReceived(const char *topic, const char *data, int length)
     const char *action = doc["action"];
     const char *number;
 
+    // A missing "action" yields a null pointer; guard before strcmp/println
+    // so a malformed command can't crash the device.
+    if (!action)
+    {
+        Serial.println("Command missing 'action' field, ignoring");
+        return;
+    }
+
     Serial.print("Searching Action enum for:");
     Serial.println(action);
     Action act = getAction(action);
@@ -192,6 +200,11 @@ void onDataReceived(const char *topic, const char *data, int length)
 
     case Action::CALL:
         number = doc["number"];
+        if (!number)
+        {
+            Serial.println("call action requires 'number' field");
+            break;
+        }
         simCommunication.makeCall(number);
         publishCallStatus(simCommunication.getCallStatus().c_str());
         break;
