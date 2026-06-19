@@ -106,6 +106,15 @@ bool SimCommunication::isModemReady() const
     return modemReady;
 }
 
+String SimCommunication::getModemName()
+{
+    if (!modemReady)
+    {
+        return "";
+    }
+    return modem.getModemName();
+}
+
 bool ringDetected()
 {
     return digitalRead(MODEM_RING_PIN) == LOW;

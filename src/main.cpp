@@ -299,7 +299,10 @@ void setup()
     Serial.print("Number of SMS on SIM card: ");
     Serial.println(smsCount);
 
-    mqtt.publish(infoTopic, "Modem ready");
+    // Report the detected modem model (e.g. "A7670E-FASE") so the exact
+    // hardware variant is recorded on the broker without a serial console.
+    String readyMessage = "Modem ready: " + simCommunication.getModemName();
+    mqtt.publish(infoTopic, readyMessage.c_str());
 }
 
 void loop()

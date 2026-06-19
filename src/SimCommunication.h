@@ -27,6 +27,8 @@ public:
     // the caller can keep running in a degraded (modem-less) mode.
     bool init();
     bool isModemReady() const;
+    // Modem model string (e.g. "A7670E-FASE"); empty if the modem isn't ready.
+    String getModemName();
     sim_com_check_result check();
     String getCallStatus();
     void makeCall(const char *number);
