@@ -2,62 +2,108 @@
 #include <constants.h>
 #include <StreamDebugger.h>
 #include <TinyGsmClient.h>
+#include <esp_task_wdt.h>
 #include "SimCommunication.h"
+
+// Upper bounds for the blocking modem startup steps. Without these the device
+// could hang forever in setup() with no SIM / no antenna / no network. Each
+// loop also feeds the task watchdog so a single stuck AT call still triggers a
+// reset rather than a silent freeze.
+static const uint32_t MODEM_START_TIMEOUT_MS = 30000;
+static const uint32_t SMS_DONE_TIMEOUT_MS    = 30000;
+static const uint32_t SIM_READY_TIMEOUT_MS   = 30000;
+static const uint32_t NET_REG_TIMEOUT_MS     = 120000;
+static const uint32_t RING_SETTLE_TIMEOUT_MS = 10000;
+
+// Feed the task watchdog. No-op if the current task isn't subscribed.
+static inline void feedWatchdog()
+{
+    esp_task_wdt_reset();
+}
 
 // public methods
 
-void SimCommunication::init()
+bool SimCommunication::init()
 {
     SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
     currentCallStatus = NO_CALL;
+    modemReady = false;
 
     powerUpModem();
-    startModem();
+
+    if (!startModem())
+    {
+        Serial.println("Modem did not respond; aborting modem init.");
+        return false;
+    }
 
     modem.sendAT("+SIMCOMATI");
     modem.waitResponse();
 
-    // Wait PB DONE
+    // Wait for the modem to finish its SMS/phonebook startup (PB/SMS DONE).
     Serial.println("Wait SMS Done.");
-    if (!modem.waitResponse(100000UL, "SMS DONE")) {
-        Serial.println("Can't wait from sms register ....");
-        return;
+    feedWatchdog();
+    if (!modem.waitResponse(SMS_DONE_TIMEOUT_MS, "SMS DONE")) {
+        Serial.println("Timed out waiting for SMS DONE; aborting modem init.");
+        return false;
+    }
+    feedWatchdog();
+
+    if (!isSimCardOnline())
+    {
+        Serial.println("SIM card not ready; aborting modem init.");
+        return false;
     }
 
-    isSimCardOnline();
     setNetworkMode();
     setNetworkApn();
-    awaitNetworkRegistration();
-    
-    // wait until MODEM_RING_PIN is HIGH to avoid false ring detection at startup
+
+    if (!awaitNetworkRegistration())
+    {
+        Serial.println("Network registration failed; aborting modem init.");
+        return false;
+    }
+
+    // Wait until MODEM_RING_PIN settles HIGH to avoid a false ring at startup,
+    // but don't block forever if it is stuck LOW.
+    uint32_t ringStart = millis();
     while (digitalRead(MODEM_RING_PIN) == LOW)
     {
+        feedWatchdog();
         Serial.println("Waiting for RING pin to go HIGH...");
+        if (millis() - ringStart > RING_SETTLE_TIMEOUT_MS)
+        {
+            Serial.println("RING pin still LOW after timeout, proceeding anyway.");
+            break;
+        }
         delay(100);
     }
-    Serial.println("RING pin is HIGH, proceeding with initialization.");
 
-    // Enable SMS notifications
-    // modem.sendAT("+CNMI=1,2,0,0,0"); // Enable SMS notifications to terminal
-    // modem.waitResponse();
-    
-    // Set SMS text mode
-    modem.sendAT("+CMGF=1"); // Set SMS text mode (not PDU mode)
+    // Set SMS text mode (not PDU mode)
+    modem.sendAT("+CMGF=1");
     modem.waitResponse();
-    
+
     // Configure SMS to be stored in SIM memory instead of being forwarded directly
     // Format: AT+CNMI=<mode>,<mt>,<bm>,<ds>,<bfr>
     // mode=1: buffer unsolicited result codes in TA when TA-TE link is reserved
     // mt=1: SMS-DELIVER is stored and indication is sent to TE
-    // bm=0: no SMS-STATUS-REPORTs are routed
-    // ds=0: no SMS-STATUS-REPORTs are routed  
+    // bm=0/ds=0: no SMS-STATUS-REPORTs are routed
     // bfr=0: buffer is flushed when mode 1 is entered
-    modem.sendAT("+CNMI=1,1,0,0,0"); // Store SMS and send notification
+    modem.sendAT("+CNMI=1,1,0,0,0");
     modem.waitResponse();
-    
-    // Set preferred SMS storage to SIM card
-    modem.sendAT("+CPMS=\"SM\",\"SM\",\"SM\""); // Use SIM memory for read, write, and receive
+
+    // Set preferred SMS storage to SIM card (read, write, receive)
+    modem.sendAT("+CPMS=\"SM\",\"SM\",\"SM\"");
     modem.waitResponse();
+
+    modemReady = true;
+    Serial.println("Modem init complete.");
+    return true;
+}
+
+bool SimCommunication::isModemReady() const
+{
+    return modemReady;
 }
 
 bool ringDetected()
@@ -71,6 +117,12 @@ static const unsigned long CALL_POLL_INTERVAL_MS = 500;
 
 sim_com_check_result SimCommunication::check()
 {
+    // Nothing to poll if the modem never came up (degraded mode).
+    if (!modemReady)
+    {
+        return {SIM_COM_NOTHING, ""};
+    }
+
     // The RI pin pulses on an incoming SMS notification; when asserted, drain
     // any messages stored on the SIM.
     if (ringDetected())
@@ -452,15 +504,22 @@ void SimCommunication::powerUpModem()
     pinMode(MODEM_RING_PIN, INPUT_PULLUP);
 }
 
-void SimCommunication::startModem()
+bool SimCommunication::startModem()
 {
     // Check if the modem is online
     Serial.println("Start modem...");
 
+    uint32_t start = millis();
     int retry = 0;
     while (!modem.testAT(1000))
     {
+        feedWatchdog();
         Serial.println(".");
+        if (millis() - start > MODEM_START_TIMEOUT_MS)
+        {
+            Serial.println("Modem not responding to AT within timeout.");
+            return false;
+        }
         if (retry++ > 10)
         {
             digitalWrite(BOARD_PWRKEY_PIN, LOW);
@@ -476,26 +535,31 @@ void SimCommunication::startModem()
 
     Serial.print("Model Name:");
     Serial.println(modem.getModemName());
+    return true;
 }
 
-void SimCommunication::isSimCardOnline()
+bool SimCommunication::isSimCardOnline()
 {
-    SimStatus sim = SIM_ERROR;
-    while (sim != SIM_READY)
+    uint32_t start = millis();
+    while (true)
     {
-        sim = modem.getSimStatus();
-        switch (sim)
+        feedWatchdog();
+        SimStatus sim = modem.getSimStatus();
+        if (sim == SIM_READY)
         {
-        case SIM_READY:
             Serial.println("SIM card online");
-            break;
-        case SIM_LOCKED:
+            return true;
+        }
+        if (sim == SIM_LOCKED)
+        {
             Serial.println("The SIM card is locked. Please unlock the SIM card first.");
             // const char *SIMCARD_PIN_CODE = "123456";
             // modem.simUnlock(SIMCARD_PIN_CODE);
-            break;
-        default:
-            break;
+        }
+        if (millis() - start > SIM_READY_TIMEOUT_MS)
+        {
+            Serial.println("SIM card not ready within timeout.");
+            return false;
         }
         delay(1000);
     }
@@ -523,14 +587,16 @@ void SimCommunication::setNetworkApn()
     }
 }
 
-void SimCommunication::awaitNetworkRegistration()
+bool SimCommunication::awaitNetworkRegistration()
 {
     // Check network registration status and network signal status
     int16_t sq;
     Serial.print("Wait for the modem to register with the network.");
+    uint32_t start = millis();
     RegStatus status = REG_NO_RESULT;
     while (status == REG_NO_RESULT || status == REG_SEARCHING || status == REG_UNREGISTERED)
     {
+        feedWatchdog();
         status = modem.getRegistrationStatus();
         switch (status)
         {
@@ -542,7 +608,7 @@ void SimCommunication::awaitNetworkRegistration()
             break;
         case REG_DENIED:
             Serial.println("Network registration was rejected, please check if the APN is correct");
-            return;
+            return false;
         case REG_OK_HOME:
             Serial.println("Online registration successful");
             break;
@@ -553,6 +619,12 @@ void SimCommunication::awaitNetworkRegistration()
             Serial.printf("Registration Status:%d\n", status);
             delay(1000);
             break;
+        }
+
+        if (millis() - start > NET_REG_TIMEOUT_MS)
+        {
+            Serial.println("\nNetwork registration timed out.");
+            return false;
         }
     }
     Serial.println();
@@ -569,4 +641,5 @@ void SimCommunication::awaitNetworkRegistration()
     {
         Serial.println("Enable network failed!");
     }
+    return true;
 }

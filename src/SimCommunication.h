@@ -23,7 +23,10 @@ typedef enum {
 class SimCommunication
 {
 public:
-    void init();
+    // Returns true once the modem is fully initialized and ready. On failure
+    // the caller can keep running in a degraded (modem-less) mode.
+    bool init();
+    bool isModemReady() const;
     sim_com_check_result check();
     String getCallStatus();
     void makeCall(const char *number);
@@ -36,11 +39,13 @@ public:
 
 private:
     void powerUpModem();
-    void startModem();
-    void isSimCardOnline();
+    // The startup steps below are bounded by timeouts and return false on
+    // failure instead of blocking forever.
+    bool startModem();
+    bool isSimCardOnline();
     void setNetworkMode();
     void setNetworkApn();
-    void awaitNetworkRegistration();
+    bool awaitNetworkRegistration();
 
     // Poll the modem (+CLCC) for the live call state and report transitions.
     sim_com_check_result updateCallState();
@@ -51,6 +56,7 @@ private:
     StreamDebugger debugger = StreamDebugger(SerialAT, Serial);
     TinyGsm modem = TinyGsm(debugger);
     current_call_status currentCallStatus = NO_CALL;
+    bool modemReady = false;
 };
 
 #endif // SIMCOMMUNICATION_H

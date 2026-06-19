@@ -8,9 +8,15 @@
 #include <ArduinoJson.h>
 #include <TinyGsmClient.h>
 #include <StreamDebugger.h>
+#include <esp_task_wdt.h>
 #include "MqttClient.h"
 #include "WifiConnection.h"
 #include "SimCommunication.h"
+
+// Task-watchdog timeout. Must exceed the longest single blocking call in the
+// modem init (the SMS DONE wait, ~30 s) while still catching a real hang. The
+// bounded init loops feed the watchdog so they don't trip it prematurely.
+static const uint32_t WDT_TIMEOUT_S = 60;
 
 void onDataReceived(const char *topic, int topic_len, const char *data, int data_len);
 
@@ -193,6 +199,14 @@ void onDataReceived(const char *topic, int topic_len, const char *data, int data
     Serial.print("Action enum:");
     Serial.println((int)act);
 
+    // Reject modem-dependent commands while the modem is not ready (degraded
+    // mode), but always allow a remote reboot so the device stays controllable.
+    if (act != Action::REBOOT && act != Action::UNKNOWN && !simCommunication.isModemReady())
+    {
+        Serial.println("Modem not ready, ignoring command");
+        return;
+    }
+
     switch (act)
     {
     case Action::REBOOT:
@@ -244,11 +258,13 @@ void setup()
 {
     Serial.begin(115200); // Set console baud rate
 
+    // 1. Bring up WiFi + MQTT first, so the device is reachable and can report
+    //    problems even if the modem never comes up. WiFiManager may block in
+    //    its captive portal here, which is why the watchdog is armed only
+    //    afterwards.
     wifiConnection.init();
 
     configTzTime(TZ_INFO, NTP_SERVER);
-
-    simCommunication.init();
 
     String macStr = getCurrentMacAddress();
 
@@ -260,16 +276,37 @@ void setup()
     char infoTopic[60] = {0};
     sprintf(infoTopic, "%s/%s/info", MQTT_EVENT_TOPIC, macStr.c_str());
 
-    String infoMessage = "Device started at " + getCurrentTimeISO8601();
-    mqtt.publish(infoTopic, infoMessage.c_str()); 
+    String infoMessage = "Device started at " + getCurrentTimeISO8601() + ", initializing modem";
+    mqtt.publish(infoTopic, infoMessage.c_str());
+
+    // 2. Arm the task watchdog before the modem init (which contains the
+    //    long-running waits). Reconfigures the default 5 s TWDT and subscribes
+    //    this task; the init helpers feed it, so a genuine hang triggers a
+    //    reset instead of a silent freeze.
+    esp_task_wdt_init(WDT_TIMEOUT_S, true);
+    esp_task_wdt_add(NULL);
+
+    // 3. Modem init, bounded by timeouts. On failure stay up in a degraded mode
+    //    so the device remains reachable (e.g. for a remote reboot).
+    if (!simCommunication.init())
+    {
+        Serial.println("Modem initialization failed - running in degraded mode.");
+        mqtt.publish(infoTopic, "Modem initialization failed");
+        return;
+    }
 
     int smsCount = simCommunication.getSMSCount();
     Serial.print("Number of SMS on SIM card: ");
     Serial.println(smsCount);
+
+    mqtt.publish(infoTopic, "Modem ready");
 }
 
 void loop()
 {
+    // Keep the watchdog happy each iteration; a stuck loop will reset the device.
+    esp_task_wdt_reset();
+
     // Check MQTT connection and reconnect if necessary
     if (!mqtt.connected()) {
         Serial.println("MQTT disconnected, attempting reconnect...");
