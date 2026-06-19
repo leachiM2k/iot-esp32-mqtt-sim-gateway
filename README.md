@@ -102,47 +102,60 @@ Send JSON commands to control the device:
 }
 ```
 
-#### Send USSD
+#### Reboot
 ```json
 {
-  "action": "ussd",
-  "code": "*100#"
+  "action": "reboot"
 }
 ```
 
-### Event Topic (`esp32/events/<MAC>`)
+> **Note:** A `sendUSSD()` method exists in the firmware but is currently **not**
+> wired to any MQTT command, so there is no `ussd` action yet.
 
-The device publishes events with ISO8601 timestamps:
+### Event Topics
 
-#### Incoming Call
+The device publishes to several sub-topics under `esp32/events/<MAC>`. All event
+payloads carry an ISO8601 timestamp in the `time` field and the device `mac`.
+
+#### Incoming Call — `esp32/events/<MAC>/checkresult`
 ```json
 {
-  "timestamp": "2025-11-03T10:15:30Z",
   "mac": "AC1518B62E50",
-  "event": "call",
-  "number": "+491234567890"
+  "time": "2025-11-03T10:15:30Z",
+  "event": 1,
+  "data": "+491234567890"
 }
 ```
 
-#### Call Status Update
+#### Call Status Update — `esp32/events/<MAC>/callstatus`
+Published on call-related events and after `call`/`accept`/`hangup` commands.
 ```json
 {
-  "timestamp": "2025-11-03T10:15:35Z",
   "mac": "AC1518B62E50",
-  "event": "call_update",
+  "time": "2025-11-03T10:15:35Z",
   "status": "ESTABLISHED"
 }
 ```
+`status` is one of `NO_CALL`, `CALLING`, `RINGING`, `ESTABLISHED`, `UNKNOWN`.
 
-#### SMS Received
+#### SMS Received — `esp32/events/<MAC>/sms`
 ```json
 {
-  "timestamp": "2025-11-03T10:20:00Z",
   "mac": "AC1518B62E50",
-  "event": "sms",
-  "message": "SMS content here"
+  "time": "2025-11-03T10:20:00Z",
+  "event": 3,
+  "sender": "+491234567890",
+  "message": "SMS content here",
+  "data": "+491234567890:SMS content here"
 }
 ```
+
+#### Device Started — `esp32/events/<MAC>/info`
+A plain-text message (not JSON) published once on boot, e.g.
+`Device started at 2025-11-03T10:15:00Z`.
+
+> **Note:** The `event` field is the numeric enum value
+> (`1` = call, `2` = call update, `3` = SMS).
 
 ## First Run
 
