@@ -84,13 +84,28 @@ Die README ist teils ungenau — der **Code ist die Wahrheit**:
   `src/constants.h` (im Git getrackt). Beim Umgang mit dieser Datei beachten —
   nicht versehentlich in Logs/Commits/PRs ausgeben.
 
-## Hardware-Pins (aus `constants.h`)
+## Hardware
 
-Modem-UART TX=27 RX=26 · PWRKEY=4 · DTR=32 · RESET=5 · RING=33 · LED/PowerOn=13.
-Modem-Reset-Sequenz und PWRKEY-Toggle stecken in `SimCommunication::powerUpModem()`.
+**Board**: LilyGo T-Call A7670E, Revision **V1.1** (ESP32-WROVER-E, 4 MB Flash /
+8 MB PSRAM). Bestätigt über die Pins: sie matchen exakt das Macro
+`LILYGO_T_CALL_A7670_V1_1` aus LilyGos
+[LilyGo-Modem-Series](https://github.com/Xinyuan-LilyGO/LilyGo-Modem-Series)
+(V1.0 und das Standalone-T-A7670 haben andere Pins / `RESET_LEVEL HIGH`).
+
+**Modem**: A7670**E** (Europa-Bänder, Voice + SMS), passend zu sipgate/DE. Konkret
+`A7670E-FASE` oder `-LASE` (Unterschied nur GPS, das die Firmware nicht nutzt —
+`MODEM_GPS_ENABLE_GPIO (-1)`). Die exakte Variante steht im Boot-Log
+(`Model Name:` aus `getModemName()` / `AT+SIMCOMATI`) und wird beim Start aufs
+MQTT-`/info`-Topic publiziert (`Modem ready: <modell>`).
+
+**Pins (aus `constants.h`)**: Modem-UART TX=27 RX=26 · PWRKEY=4 · DTR=32 · RESET=5
+(aktiv LOW) · RING=33 · LED/PowerOn=13. Reset-Sequenz und PWRKEY-Toggle stecken in
+`SimCommunication::powerUpModem()`. Hinweis: `BOARD_POWERON_PIN` (=LED 13) ist eine
+projekteigene Ergänzung — V1.1 hat keine Modem-Power-Control im Upstream.
 
 ## Git
 
-Branch `main`. Aktuell uncommittete Änderungen in `src/SimCommunication.cpp` und
-`src/constants.h`. Commits/Push nur auf ausdrücklichen Wunsch; bei Arbeit auf `main`
-vorher einen Branch anlegen.
+Default-Branch `main`. Commits/Push nur auf ausdrücklichen Wunsch; bei Arbeit auf
+`main` vorher einen Branch anlegen. **`src/constants.h` enthält lokal echte Secrets
+(MQTT-Passwort) und wird bewusst nicht committet** — beim Stagen nie pauschal
+`git add -A` o.ä. verwenden, sondern Dateien gezielt stagen.

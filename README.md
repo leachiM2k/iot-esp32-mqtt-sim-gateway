@@ -16,7 +16,21 @@ A feature-rich ESP32-based IoT gateway that combines WiFi, MQTT, GSM connectivit
 
 ## Hardware
 
-**Tested on**: LilyGo T-Call A7670E
+**Board**: LilyGo T-Call A7670E, **hardware revision V1.1** (ESP32-WROVER-E, 4 MB
+Flash / 8 MB PSRAM). The board build macro is `LILYGO_T_CALL_A7670_V1_1`
+(`platformio.ini`); the V1.1 pinout matches LilyGo's
+[official definitions](https://github.com/Xinyuan-LilyGO/LilyGo-Modem-Series).
+
+### Modem variant
+
+The board ships with one of several A7670 modem variants. This project targets the
+**A7670E** (Europe bands: LTE-FDD B1/B3/B5/B7/B8/B20, GSM 900/1800) with voice +
+SMS support — i.e. an `A7670E-FASE` (with GPS) or `A7670E-LASE` (without GPS). GPS
+is not used by the firmware.
+
+To find your exact variant, watch the serial console at boot for the `Model Name:`
+line (from `getModemName()`) or send `AT+SIMCOMATI`. The model is also published to
+MQTT on boot — see the `/info` event below.
 
 ### Pin Configuration
 
@@ -151,8 +165,10 @@ Published on call-related events and after `call`/`accept`/`hangup` commands.
 ```
 
 #### Device Started — `esp32/events/<MAC>/info`
-A plain-text message (not JSON) published once on boot, e.g.
-`Device started at 2025-11-03T10:15:00Z`.
+Plain-text status messages (not JSON) published during boot:
+- `Device started at 2025-11-03T10:15:00Z, initializing modem`
+- on success: `Modem ready: A7670E-FASE` (includes the detected modem variant)
+- on failure: `Modem initialization failed` (device continues in degraded mode)
 
 > **Note:** The `event` field is the numeric enum value
 > (`1` = call, `2` = call update, `3` = SMS).
