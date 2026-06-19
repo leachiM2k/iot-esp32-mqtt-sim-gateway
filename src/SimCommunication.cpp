@@ -115,14 +115,14 @@ String SimCommunication::getModemName()
     return modem.getModemName();
 }
 
-bool ringDetected()
-{
-    return digitalRead(MODEM_RING_PIN) == LOW;
-}
-
-// How often check() queries the modem for the live call state. Polling is
-// throttled so we don't flood the AT UART on every loop iteration.
+// Polling cadence for check(). The live call state is polled often; SMS
+// storage is polled less frequently. SMS are detected by polling storage
+// rather than via the RI pin: the RI pulse on SMS arrival is far too brief
+// (~120 ms) to catch reliably and was only ever seen by chance (e.g. while the
+// pin stayed LOW during a voice call), so an SMS would not surface until the
+// next incoming call.
 static const unsigned long CALL_POLL_INTERVAL_MS = 500;
+static const unsigned long SMS_POLL_INTERVAL_MS  = 3000;
 
 sim_com_check_result SimCommunication::check()
 {
@@ -132,10 +132,12 @@ sim_com_check_result SimCommunication::check()
         return {SIM_COM_NOTHING, ""};
     }
 
-    // The RI pin pulses on an incoming SMS notification; when asserted, drain
-    // any messages stored on the SIM.
-    if (ringDetected())
+    // Poll the SIM's SMS storage periodically, independent of the RI pin.
+    static unsigned long lastSmsPoll = 0;
+    unsigned long now = millis();
+    if (now - lastSmsPoll >= SMS_POLL_INTERVAL_MS)
     {
+        lastSmsPoll = now;
         String smsContent = readAllSMS();
         if (smsContent.length() > 0)
         {
@@ -410,6 +412,7 @@ String SimCommunication::readAllSMS()
     int search = 0;
     while (true)
     {
+        feedWatchdog(); // deleting many messages (5 s each) could otherwise add up
         int headerStart = response.indexOf("+CMGL:", search);
         if (headerStart == -1)
         {
