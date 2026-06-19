@@ -43,6 +43,11 @@ private:
     void awaitNetworkRegistration();
     String readSMS(int index);
 
+    // Poll the modem (+CLCC) for the live call state and report transitions.
+    sim_com_check_result updateCallState();
+    current_call_status parseCallStatus(const String &clcc, int clccIndex);
+    String parseCallNumber(const String &clcc, int clccIndex);
+
     // Add private members and methods as needed
     StreamDebugger debugger = StreamDebugger(SerialAT, Serial);
     TinyGsm modem = TinyGsm(debugger);
