@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ESP32 A7670 — MQTT Console</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a212b; --panel2: #232c38; --line: #2e3a48;
+    --txt: #e6edf3; --muted: #93a1b0; --accent: #4ea1ff; --ok: #3fb950;
+    --warn: #d29922; --bad: #f85149; --ring: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--txt); }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--ok); }
+  select, input, button, textarea {
+    font: inherit; color: var(--txt); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+  }
+  select:focus, input:focus, textarea:focus { outline: 1px solid var(--accent); }
+  button { cursor: pointer; background: var(--panel2); transition: background .15s; }
+  button:hover:not(:disabled) { background: #2c3848; }
+  button.primary { background: var(--accent); color: #03121f; border-color: var(--accent); font-weight: 600; }
+  button.ok { background: var(--ok); color: #04210d; border-color: var(--ok); font-weight: 600; }
+  button.bad { background: var(--bad); color: #2a0606; border-color: var(--bad); font-weight: 600; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .grow { flex: 1; min-width: 0; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; background: var(--panel2); border: 1px solid var(--line); }
+  .badge.NO_CALL { color: var(--muted); }
+  .badge.CALLING { color: var(--accent); border-color: var(--accent); }
+  .badge.RINGING { color: var(--ring); border-color: var(--ring); animation: pulse 1s infinite; }
+  .badge.ESTABLISHED { color: var(--ok); border-color: var(--ok); }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .incoming { grid-column: 1 / -1; background: #3a2d10; border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; display: none; align-items: center; gap: 14px; }
+  .incoming.show { display: flex; }
+  .incoming .num { font-size: 18px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  td.msg { white-space: pre-wrap; word-break: break-word; }
+  .log { font-family: ui-monospace, monospace; font-size: 12px; max-height: 260px; overflow: auto; background: #0b0f14; border-radius: 7px; padding: 8px; }
+  .log div { padding: 1px 0; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+  .muted { color: var(--muted); }
+  .note { font-size: 12.5px; color: var(--muted); }
+  .note b { color: var(--txt); }
+  .full { grid-column: 1 / -1; }
+  #toast { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+  .toast { padding: 10px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); box-shadow: 0 4px 16px #0008; }
+  .toast.ok { border-color: var(--ok); } .toast.bad { border-color: var(--bad); }
+  code { background: #0b0f14; padding: 1px 5px; border-radius: 4px; }
+  ul { margin: 6px 0; padding-left: 18px; } li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ESP32 A7670 — MQTT Console</h1>
+  <span class="pill"><span id="dotBridge" class="dot"></span> Bridge</span>
+  <span class="pill"><span id="dotBroker" class="dot"></span> Broker</span>
+  <div class="spacer"></div>
+  <span class="pill">Board:</span>
+  <select id="macSelect"><option value="">— wird erkannt —</option></select>
+</header>
+
+<div class="incoming" id="incoming">
+  <span>📞 Eingehender Anruf</span>
+  <span class="num" id="incomingNum">—</span>
+  <div class="spacer"></div>
+  <button class="ok" data-action="accept">Annehmen</button>
+  <button class="bad" data-action="hangup">Ablehnen</button>
+</div>
+
+<main>
+  <section class="card">
+    <h2>Gerätestatus (info)</h2>
+    <div id="deviceInfo" class="muted">— noch keine Statusmeldung —</div>
+    <div id="deviceInfoTime" class="note" style="margin-top:6px"></div>
+  </section>
+
+  <section class="card">
+    <h2>Anrufstatus</h2>
+    <div class="row">
+      <span id="callBadge" class="badge NO_CALL">NO_CALL</span>
+      <span class="spacer"></span>
+      <button class="bad" data-action="hangup" id="btnHangup">Auflegen</button>
+    </div>
+    <div id="callTime" class="note" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card">
+    <h2>Anruf starten</h2>
+    <div class="row">
+      <input class="grow" id="callNumber" placeholder="+4915123456789" />
+      <button class="primary" data-action="call" data-from="callNumber">Anrufen</button>
+    </div>
+    <div class="note" style="margin-top:8px">Ausgehender Anruf über das Board.</div>
+  </section>
+
+  <section class="card">
+    <h2>SMS senden</h2>
+    <div class="row"><input class="grow" id="smsNumber" placeholder="+4915123456789" /></div>
+    <div class="row"><textarea class="grow" id="smsMessage" rows="3" placeholder="Nachricht…"></textarea></div>
+    <div class="row">
+      <button class="primary" id="btnSendSms">SMS senden</button>
+      <span class="spacer"></span>
+      <button data-action="reboot" id="btnReboot">Board neustarten</button>
+    </div>
+    <div class="note" style="margin-top:8px">⚠️ Ausgehende SMS werden GSM-7 kodiert — Umlaute/Emoji können verstümmelt werden (Empfang ist korrekt).</div>
+  </section>
+
+  <section class="card full">
+    <h2>Empfangene SMS</h2>
+    <table>
+      <thead><tr><th style="width:160px">Empfangen</th><th style="width:170px">Absender</th><th>Nachricht</th></tr></thead>
+      <tbody id="smsBody"><tr><td colspan="3" class="muted">— noch keine SMS —</td></tr></tbody>
+    </table>
+  </section>
+
+  <section class="card full">
+    <h2>Ereignis-Log (alle MQTT-Events)</h2>
+    <div class="log" id="log"></div>
+  </section>
+
+  <section class="card full">
+    <h2>Funktionsübersicht</h2>
+    <p class="note"><b>Verfügbar (in Firmware integriert):</b></p>
+    <ul class="note">
+      <li>✅ Gerätestatus anzeigen — Topic <code>/info</code></li>
+      <li>✅ Anrufstatus anzeigen — Topic <code>/callstatus</code></li>
+      <li>✅ Empfangene SMS auflisten — Topic <code>/sms</code></li>
+      <li>✅ Eingehenden Anruf annehmen — Kommando <code>accept</code></li>
+      <li>✅ Anruf ablehnen / auflegen — Kommando <code>hangup</code></li>
+      <li>✅ SMS senden — Kommando <code>sms</code></li>
+      <li>➕ Ausgehenden Anruf starten — Kommando <code>call</code> <span class="muted">(in deiner Liste nicht erwähnt, per MQTT möglich)</span></li>
+      <li>➕ Board neustarten — Kommando <code>reboot</code> <span class="muted">(per MQTT möglich)</span></li>
+      <li>➕ Eingehende Anrufernummer — Topic <code>/checkresult</code> (event 1) <span class="muted">(im Anruf-Banner)</span></li>
+    </ul>
+    <p class="note"><b>Nicht integriert / Einschränkungen:</b></p>
+    <ul class="note">
+      <li>❌ <b>USSD senden</b> — die Firmware hat <code>sendUSSD()</code>, es ist aber <b>nicht</b> als MQTT-Kommando verdrahtet → derzeit nicht nutzbar.</li>
+      <li>ℹ️ <b>„Ablehnen" und „Auflegen" sind dasselbe Kommando</b> (<code>hangup</code> / <code>AT+CHUP</code>): die Firmware kennt kein separates Reject.</li>
+      <li>ℹ️ <b>Senden erfordert Publish-Rechte</b> auf <code>esp32/commands/&lt;MAC&gt;</code>. Der <code>…readonly</code>-User kann nur empfangen — für Befehle einen schreibberechtigten User in der <code>.env</code> (<code>MQTT_CMD_*</code>) hinterlegen.</li>
+    </ul>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws = null;
+let selectedMac = "";
+let knownMacs = [];
+
+function setDot(el, on) { el.classList.toggle("on", !!on); }
+
+function toast(msg, kind) {
+  const t = document.createElement("div");
+  t.className = "toast " + (kind || "");
+  t.textContent = msg;
+  $("toast").appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+function log(line) {
+  const box = $("log");
+  const d = document.createElement("div");
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${line}`;
+  box.prepend(d);
+  while (box.childElementCount > 300) box.lastChild.remove();
+}
+
+// --- WebSocket to the local bridge -----------------------------------------
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { setDot($("dotBridge"), true); log("Bridge verbunden"); };
+  ws.onclose = () => {
+    setDot($("dotBridge"), false); setDot($("dotBroker"), false);
+    log("Bridge getrennt — reconnect in 2s"); setTimeout(connect, 2000);
+  };
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    handle(m);
+  };
+}
+
+function handle(m) {
+  switch (m.type) {
+    case "broker": setDot($("dotBroker"), m.connected); if (m.error) log("Broker-Fehler: " + m.error); break;
+    case "macs": updateMacs(m.macs); break;
+    case "event": onEvent(m); break;
+    case "ack":
+      if (m.ok) toast("Kommando gesendet: " + m.action, "ok");
+      else toast("Fehler (" + (m.action||"?") + "): " + m.error, "bad");
+      break;
+  }
+}
+
+function updateMacs(macs) {
+  knownMacs = macs || [];
+  const sel = $("macSelect");
+  const cur = selectedMac;
+  sel.innerHTML = "";
+  if (!knownMacs.length) {
+    sel.innerHTML = '<option value="">— wird erkannt —</option>';
+  } else {
+    for (const mac of knownMacs) {
+      const o = document.createElement("option"); o.value = mac; o.textContent = mac; sel.appendChild(o);
+    }
+    if (!cur || !knownMacs.includes(cur)) selectedMac = knownMacs[0];
+    sel.value = selectedMac;
+  }
+}
+$("macSelect").addEventListener("change", (e) => { selectedMac = e.target.value; });
+
+// --- Incoming event routing -------------------------------------------------
+function onEvent(m) {
+  const t = new Date(m.ts).toLocaleTimeString();
+  log(`${m.sub} (${m.mac}): ${m.raw}`);
+  switch (m.sub) {
+    case "info": {
+      const txt = typeof m.payload === "string" ? m.payload : m.raw;
+      $("deviceInfo").textContent = txt;
+      $("deviceInfo").classList.remove("muted");
+      $("deviceInfoTime").textContent = "zuletzt: " + t;
+      break;
+    }
+    case "callstatus": {
+      const st = (m.payload && m.payload.status) || "UNKNOWN";
+      setCallStatus(st, m.payload && m.payload.time);
+      break;
+    }
+    case "checkresult": {
+      // event 1 = incoming call (data = caller number), 2 = call update
+      const ev = m.payload && m.payload.event;
+      if (ev === 1) { incomingNumber = (m.payload && m.payload.data) || ""; showIncoming(true); }
+      break;
+    }
+    case "sms": addSms(m.payload, m.raw, t); break;
+  }
+}
+
+let incomingNumber = "";
+function showIncoming(show) {
+  $("incoming").classList.toggle("show", show);
+  $("incomingNum").textContent = incomingNumber || "unbekannt";
+}
+
+function setCallStatus(status, time) {
+  const b = $("callBadge");
+  b.className = "badge " + status;
+  b.textContent = status;
+  if (time) $("callTime").textContent = "zuletzt: " + time;
+  if (status === "RINGING") showIncoming(true);
+  else if (status === "NO_CALL") { incomingNumber = ""; showIncoming(false); }
+  else showIncoming(false); // CALLING / ESTABLISHED
+  $("btnHangup").disabled = (status === "NO_CALL");
+}
+$("btnHangup").disabled = true;
+
+function addSms(p, raw, t) {
+  const body = $("smsBody");
+  if (body.querySelector(".muted")) body.innerHTML = "";
+  const sender = (p && (p.sender || (p.data || "").split(":")[0])) || "?";
+  let message = p && p.message;
+  if (message == null) message = typeof p === "string" ? p : raw;
+  const tr = document.createElement("tr");
+  const td = (txt, cls) => { const c = document.createElement("td"); if (cls) c.className = cls; c.textContent = txt; return c; };
+  tr.appendChild(td(t));
+  tr.appendChild(td(sender));
+  tr.appendChild(td(message, "msg"));
+  body.prepend(tr);
+}
+
+// --- Sending commands -------------------------------------------------------
+function sendCommand(obj) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) { toast("Bridge nicht verbunden", "bad"); return; }
+  if (!selectedMac) { toast("Kein Board ausgewählt", "bad"); return; }
+  ws.send(JSON.stringify({ type: "command", mac: selectedMac, ...obj }));
+}
+
+document.querySelectorAll("button[data-action]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const action = btn.dataset.action;
+    if (action === "reboot" && !confirm("Board wirklich neustarten?")) return;
+    if (action === "call") {
+      const number = $(btn.dataset.from).value.trim();
+      if (!number) return toast("Nummer fehlt", "bad");
+      sendCommand({ action, number });
+    } else {
+      sendCommand({ action });
+    }
+  });
+});
+
+$("btnSendSms").addEventListener("click", () => {
+  const number = $("smsNumber").value.trim();
+  const message = $("smsMessage").value;
+  if (!number) return toast("Nummer fehlt", "bad");
+  if (!message) return toast("Nachricht fehlt", "bad");
+  sendCommand({ action: "sms", number, message });
+  $("smsMessage").value = "";
+});
+
+connect();
+</script>
+</body>
+</html>
