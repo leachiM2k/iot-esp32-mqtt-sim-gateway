@@ -389,9 +389,86 @@ int SimCommunication::getSMSCount()
     return smsCount;
 }
 
+// True if s is a UCS2 (UTF-16BE) hex string as produced by AT+CSCS="UCS2":
+// non-empty, length a multiple of 4, all hex digits. A plain "+49..." number
+// fails this (contains '+'), so it is left untouched.
+static bool isUcs2Hex(const String &s)
+{
+    int n = s.length();
+    if (n == 0 || (n % 4) != 0) return false;
+    for (int i = 0; i < n; i++)
+    {
+        char c = s[i];
+        bool hex = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
+        if (!hex) return false;
+    }
+    return true;
+}
+
+static void appendUtf8(String &out, uint32_t cp)
+{
+    if (cp < 0x80)
+    {
+        out += (char)cp;
+    }
+    else if (cp < 0x800)
+    {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+    else if (cp < 0x10000)
+    {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+    else
+    {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+}
+
+// Decode a modem UCS2 hex field to UTF-8. Non-UCS2 input is returned as-is, so
+// this is safe to apply to fields that may already be plain text (e.g. a
+// numeric sender the modem chose to return verbatim).
+static String decodeSmsField(const String &s)
+{
+    if (!isUcs2Hex(s)) return s;
+
+    String out;
+    int n = s.length();
+    for (int i = 0; i + 4 <= n; i += 4)
+    {
+        uint16_t cu = (uint16_t)strtoul(s.substring(i, i + 4).c_str(), nullptr, 16);
+        uint32_t cp = cu;
+        // Combine a UTF-16 surrogate pair (e.g. emoji) into one code point.
+        if (cu >= 0xD800 && cu <= 0xDBFF && i + 8 <= n)
+        {
+            uint16_t lo = (uint16_t)strtoul(s.substring(i + 4, i + 8).c_str(), nullptr, 16);
+            if (lo >= 0xDC00 && lo <= 0xDFFF)
+            {
+                cp = 0x10000 + (((uint32_t)(cu - 0xD800)) << 10) + (lo - 0xDC00);
+                i += 4;
+            }
+        }
+        appendUtf8(out, cp);
+    }
+    return out;
+}
+
 String SimCommunication::readAllSMS()
 {
     String smsList = "";
+
+    // Read in UCS2 so non-GSM characters (umlauts, emoji, ...) survive: the
+    // modem then returns the header fields and body as UTF-16BE hex, which we
+    // decode to UTF-8 below. TinyGSM's sendSMS resets CSCS to "GSM", so we
+    // re-assert UCS2 on every read.
+    modem.sendAT(GF("+CSCS=\"UCS2\""));
+    modem.waitResponse();
 
     // List every stored message in one shot. AT+CMGL returns each message with
     // its real storage index, so we never miss messages sitting in
@@ -436,7 +513,7 @@ String SimCommunication::readAllSMS()
         int q4 = response.indexOf("\"", q3 + 1);
         if (q1 != -1 && q2 != -1 && q3 != -1 && q4 != -1)
         {
-            sender = response.substring(q3 + 1, q4);
+            sender = decodeSmsField(response.substring(q3 + 1, q4));
         }
 
         // Body spans from the line after the header to the next entry (or OK).
@@ -459,6 +536,7 @@ String SimCommunication::readAllSMS()
             }
             message = response.substring(bodyStart, bodyEnd);
             message.trim();
+            message = decodeSmsField(message);
         }
 
         if (sender.length() > 0 || message.length() > 0)
