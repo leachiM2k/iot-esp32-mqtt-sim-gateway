@@ -12,7 +12,7 @@
 #include "WifiConnection.h"
 #include "SimCommunication.h"
 
-void onDataReceived(const char *topic, const char *data, int length);
+void onDataReceived(const char *topic, int topic_len, const char *data, int data_len);
 
 WifiConnection wifiConnection;
 StreamDebugger debugger(SerialAT, Serial);
@@ -152,18 +152,20 @@ Action getAction(const char *action)
     }
 }
 
-void onDataReceived(const char *topic, const char *data, int length)
+void onDataReceived(const char *topic, int topic_len, const char *data, int data_len)
 {
-    Serial.print("Callback");
-    Serial.println(topic);
-    Serial.println(data);
-    Serial.println(length);
+    // topic and data come straight from the MQTT event and are NOT
+    // null-terminated, so they must only ever be printed with an explicit
+    // length (%.*s) — never %s / println, which would read past the buffer.
+    Serial.printf("Callback - Topic: %.*s, Data: %.*s (%d bytes)\n",
+                  topic_len, topic, data_len, data, data_len);
 
     // Allocate a temporary JsonDocument
     JsonDocument doc;
 
-    // Deserialize the JSON document
-    DeserializationError error = deserializeJson(doc, data, length);
+    // Deserialize the JSON document (length-bounded, so the missing
+    // terminator is fine here)
+    DeserializationError error = deserializeJson(doc, data, data_len);
 
     // Test if parsing succeeds
     if (error)
@@ -236,8 +238,6 @@ void onDataReceived(const char *topic, const char *data, int length)
     default:
         break;
     }
-
-    Serial.printf("Callback - Topic: %s, Data: %s\n", topic, data);
 }
 
 void setup()

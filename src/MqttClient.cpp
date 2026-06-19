@@ -92,7 +92,7 @@ void MqttClient::mqtt_event_handler(void *handler_args, esp_event_base_t base, i
         if (self->onDataCallback)
         {
             Serial.println("Calling onDataCallback");
-            self->onDataCallback(event->topic, event->data, event->data_len);
+            self->onDataCallback(event->topic, event->topic_len, event->data, event->data_len);
         }
         break;
     case MQTT_EVENT_ERROR:

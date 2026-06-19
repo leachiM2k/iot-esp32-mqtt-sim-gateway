@@ -7,7 +7,7 @@
 class MqttClient
 {
 public:
-    typedef void (*OnDataCallback)(const char *topic, const char *data, int length);
+    typedef void (*OnDataCallback)(const char *topic, int topic_len, const char *data, int data_len);
 
     MqttClient();
     MqttClient(const char *server, const char *user, const char *password, const char *commandTopic, const char *eventTopic, OnDataCallback onDataCallback);
