@@ -16,7 +16,9 @@ public:
     bool connected();
     void reconnect();
     void connect();
-    void publish(const char *topic, const char *message);
+    // retain=true keeps the message on the broker as the topic's last-known
+    // value, so new subscribers receive it immediately on subscribe.
+    void publish(const char *topic, const char *message, bool retain = false);
     void subscribe(const char *topic);
 
 private:

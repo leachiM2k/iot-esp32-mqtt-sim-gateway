@@ -47,9 +47,9 @@ void MqttClient::connect()
     esp_mqtt_client_start(client);
 }
 
-void MqttClient::publish(const char *topic, const char *message)
+void MqttClient::publish(const char *topic, const char *message, bool retain)
 {
-    esp_mqtt_client_publish(client, topic, message, 0, 1, 0);
+    esp_mqtt_client_publish(client, topic, message, 0, 1, retain ? 1 : 0);
 }
 
 void MqttClient::subscribe(const char *topic)

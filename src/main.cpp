@@ -117,7 +117,8 @@ void publishCallStatus(const char *status)
     char topic[60] = {0};
     sprintf(topic, "%s/%s/callstatus", MQTT_EVENT_TOPIC, macStr.c_str());
 
-    mqtt.publish(topic, json);
+    // Retained: the current call state stays available to new subscribers.
+    mqtt.publish(topic, json, true);
 }
 
 enum class Action
@@ -276,8 +277,14 @@ void setup()
     char infoTopic[60] = {0};
     sprintf(infoTopic, "%s/%s/info", MQTT_EVENT_TOPIC, macStr.c_str());
 
+    // Retained /info: a new subscriber immediately learns this board exists
+    // (its MAC) and its last status, without waiting for the board to republish.
+    // TODO: a 1-day expiry would need MQTT 5 message-expiry-interval, which the
+    // current esp-mqtt (IDF 4.4, MQTT 3.1.1 only) does not support. Until the
+    // framework is updated to IDF 5.x these retained values live until they are
+    // overwritten (next boot / status change) or cleared.
     String infoMessage = "Device started at " + getCurrentTimeISO8601() + ", initializing modem";
-    mqtt.publish(infoTopic, infoMessage.c_str());
+    mqtt.publish(infoTopic, infoMessage.c_str(), true);
 
     // 2. Arm the task watchdog before the modem init (which contains the
     //    long-running waits). Reconfigures the default 5 s TWDT and subscribes
@@ -291,7 +298,7 @@ void setup()
     if (!simCommunication.init())
     {
         Serial.println("Modem initialization failed - running in degraded mode.");
-        mqtt.publish(infoTopic, "Modem initialization failed");
+        mqtt.publish(infoTopic, "Modem initialization failed", true);
         return;
     }
 
@@ -302,7 +309,11 @@ void setup()
     // Report the detected modem model (e.g. "A7670E-FASE") so the exact
     // hardware variant is recorded on the broker without a serial console.
     String readyMessage = "Modem ready: " + simCommunication.getModemName();
-    mqtt.publish(infoTopic, readyMessage.c_str());
+    mqtt.publish(infoTopic, readyMessage.c_str(), true);
+
+    // Publish the initial call state (retained) so a fresh subscriber sees the
+    // current status right away instead of waiting for the first call.
+    publishCallStatus(simCommunication.getCallStatus().c_str());
 }
 
 void loop()
