@@ -53,6 +53,7 @@ public:
 
 private:
     bool reconnect();
+    void growBackoff(); // grow the reconnect backoff window (exponential, capped)
     // PubSubClient's callback type differs between cores (plain function pointer
     // vs std::function), so we register a static trampoline that forwards to the
     // single instance — works regardless of MQTT_CALLBACK_SIGNATURE.
@@ -88,6 +89,7 @@ private:
     int connectFailStreak = 0;
 
     unsigned long lastReconnectAttempt = 0;
+    unsigned long reconnectDelay = 5000; // current backoff window (grows on failure)
 };
 
 #endif // MQTT_SERVICE_H

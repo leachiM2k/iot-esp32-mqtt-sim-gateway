@@ -271,25 +271,6 @@ bool SimCommunication::resolveHost(const char *host, IPAddress &out)
     return true;
 }
 
-bool SimCommunication::resetDataConnection()
-{
-    if (!modemReady)
-    {
-        return false;
-    }
-    Serial.println("Resetting LTE IP stack (NETCLOSE/NETOPEN)...");
-    feedWatchdog();
-    modem.sendAT("+NETCLOSE");
-    modem.waitResponse(20000L); // may report already-closed/error; tolerate it
-    delay(1000);
-    feedWatchdog();
-    bool ok = modem.setNetworkActive(); // NETOPEN
-    feedWatchdog();
-    bool up = ok && modem.isGprsConnected();
-    Serial.printf("IP stack reset %s\n", up ? "ok" : "failed");
-    return up;
-}
-
 time_t SimCommunication::getNetworkEpochUTC()
 {
     if (!modemReady)

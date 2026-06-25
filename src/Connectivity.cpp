@@ -15,10 +15,6 @@ static const unsigned long WIFI_MQTT_GRACE_MS = 25000;
 // outage while it switches back and probes, so keep it infrequent.
 static const unsigned long WIFI_RETRY_MS = 300000; // 5 min
 
-// How long MQTT may stay down on LTE before we hard-reset the modem IP stack to
-// recover a wedged socket service. Spans several reconnect attempts so a normal
-// brief reconnect doesn't trigger it.
-static const unsigned long LTE_MQTT_RESET_MS = 35000;
 
 void Connectivity::begin(WifiConnection &wifi, SimCommunication &sim, MqttService &mqtt)
 {
@@ -88,29 +84,13 @@ void Connectivity::update()
         wifiMqttBadSince = 0;
     }
 
-    // While on LTE, recover a wedged modem socket service: if MQTT stays down
-    // past the threshold, hard-reset the IP stack (NETCLOSE/NETOPEN).
-    if (activeTransport == Transport::LTE)
-    {
-        if (mqtt->connected())
-        {
-            lteMqttBadSince = 0;
-        }
-        else if (lteMqttBadSince == 0)
-        {
-            lteMqttBadSince = now;
-        }
-        else if (now - lteMqttBadSince > LTE_MQTT_RESET_MS)
-        {
-            Serial.println("[conn] MQTT stuck on LTE -> resetting modem IP stack");
-            sim->resetDataConnection();
-            lteMqttBadSince = now; // restart timer so we don't hammer the reset
-        }
-    }
-    else
-    {
-        lteMqttBadSince = 0;
-    }
+    // NOTE: we deliberately do NOT cycle the modem IP stack (NETCLOSE/NETOPEN)
+    // on LTE MQTT failures anymore. Repeatedly tearing down and re-activating the
+    // PDP context can trip a network-side activation backoff (3GPP T3396): the
+    // modem stays *registered* but the network refuses the data bearer, which
+    // looks exactly like the "registered, no data" failures we chased (CDNSGIP
+    // timeout / CIPOPEN network failure) and survives even a reboot. MqttService
+    // now just retries with exponential backoff, which is gentle on the network.
 
     // 3. Decide the desired transport: prefer a healthy WiFi link, else LTE,
     //    else whatever link physically exists.

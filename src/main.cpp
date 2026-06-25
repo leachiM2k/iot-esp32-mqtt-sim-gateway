@@ -407,6 +407,11 @@ void onDataReceived(const char *topic, int topic_len, const char *data, int data
 // the A7670's inline CIPOPEN DNS is unreliable over the mobile APN.
 bool resolveBroker(const char *host, IPAddress &out)
 {
+    // If the broker is already configured as an IP literal, skip DNS entirely.
+    if (out.fromString(host))
+    {
+        return true;
+    }
     switch (connectivity.active())
     {
     case Transport::WIFI:

@@ -14,8 +14,14 @@ void WifiConnection::init() {
 
         wifiManager.setHostname(wifiHostname);
 
-        wifiManager.setConnectRetries(10);
-        wifiManager.setConnectTimeout(10);
+        // Keep the *blocking* saved-AP connect phase short. autoConnect() blocks
+        // for up to setConnectRetries × setConnectTimeout; with the old 10 × 10 s
+        // that was ~100 s with no watchdog feed, so when the known AP is absent
+        // the 60 s task watchdog tripped and the device boot-looped instead of
+        // falling back to LTE. One bounded attempt (~8 s) is well under the WDT;
+        // the non-blocking portal + WiFi auto-reconnect keep retrying afterwards.
+        wifiManager.setConnectRetries(1);
+        wifiManager.setConnectTimeout(8);
         // Non-blocking: setup() must not stall in the captive portal, so the
         // device can run over LTE while WiFi is missing/being configured.
         wifiManager.setConfigPortalBlocking(false);

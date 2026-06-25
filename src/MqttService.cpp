@@ -12,8 +12,12 @@ static const uint16_t MQTT_BUFFER_SIZE = 1024;
 // call/SMS polling or trip the task watchdog.
 static const uint16_t MQTT_SOCKET_TIMEOUT_S = 8;
 
-// Reconnect backoff: don't hammer the broker; one attempt per interval.
-static const unsigned long RECONNECT_INTERVAL_MS = 5000;
+// Reconnect backoff: exponential, so a persistent failure (e.g. a throttled
+// mobile data bearer) is retried ever more slowly instead of being hammered.
+// Hammering reconnects/PDP cycling can trip a network-side activation backoff
+// (3GPP T3396), which looks exactly like "registered but no data".
+static const unsigned long RECONNECT_BASE_MS = 5000;
+static const unsigned long RECONNECT_MAX_MS = 90000;
 
 // Keepalive: short over WiFi (cheap, fast dead-peer detection), long over LTE
 // to cut keepalive data on the mobile link.
@@ -74,6 +78,7 @@ void MqttService::setTransport(Client &client, bool highKeepAlive)
     // the last-known-good IP is intentionally kept as a fallback.
     haveResolved = false;
     connectFailStreak = 0;
+    reconnectDelay = RECONNECT_BASE_MS;
     // Attempt the reconnect on the very next loop() rather than after a backoff.
     lastReconnectAttempt = 0;
 }
@@ -106,10 +111,16 @@ bool MqttService::connected()
     return mqtt.connected();
 }
 
+void MqttService::growBackoff()
+{
+    unsigned long next = reconnectDelay * 2;
+    reconnectDelay = next < RECONNECT_MAX_MS ? next : RECONNECT_MAX_MS;
+}
+
 bool MqttService::reconnect()
 {
     unsigned long now = millis();
-    if (now - lastReconnectAttempt < RECONNECT_INTERVAL_MS)
+    if (now - lastReconnectAttempt < reconnectDelay)
     {
         return false;
     }
@@ -163,7 +174,11 @@ bool MqttService::reconnect()
     }
     else
     {
-        Serial.printf("[mqtt] cannot resolve %s yet, will retry\n", host);
+        // DNS unavailable (e.g. a throttled/backed-off data bearer makes CDNSGIP
+        // time out). Back off too, so we don't keep hammering DNS every cycle.
+        growBackoff();
+        Serial.printf("[mqtt] cannot resolve %s yet, next try in %lus\n",
+                      host, reconnectDelay / 1000);
         return false;
     }
 
@@ -174,6 +189,7 @@ bool MqttService::reconnect()
     if (ok)
     {
         connectFailStreak = 0;
+        reconnectDelay = RECONNECT_BASE_MS; // recovered: back to fast retries
         if (haveTarget)
         {
             lastGoodIp = target;
@@ -189,8 +205,9 @@ bool MqttService::reconnect()
     else
     {
         connectFailStreak++;
-        Serial.printf("[mqtt] connect failed, state=%d (streak %d)\n",
-                      mqtt.state(), connectFailStreak);
+        growBackoff();
+        Serial.printf("[mqtt] connect failed, state=%d (streak %d, next retry in %lus)\n",
+                      mqtt.state(), connectFailStreak, reconnectDelay / 1000);
     }
     return ok;
 }

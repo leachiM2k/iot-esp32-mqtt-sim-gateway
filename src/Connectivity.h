@@ -45,11 +45,6 @@ private:
     unsigned long wifiMqttBadSince = 0; // when MQTT first seen down on WiFi (0 = ok)
     unsigned long wifiPenalizedAt = 0;  // when the penalty was applied
     bool wifiPenalized = false;
-
-    // LTE health: the modem's socket service can wedge after a dropped TCP
-    // connection (CIPOPEN keeps failing). If MQTT stays down on LTE past a
-    // threshold we hard-reset the IP stack (NETCLOSE/NETOPEN) to clear it.
-    unsigned long lteMqttBadSince = 0;
 };
 
 #endif // CONNECTIVITY_H

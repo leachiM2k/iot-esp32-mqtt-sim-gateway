@@ -83,10 +83,6 @@ public:
     // inline CIPOPEN DNS is unreliable over the mobile APN ("+CIPOPEN: x,11"),
     // so MQTT-over-LTE resolves up front and connects by IP. Loop task only.
     bool resolveHost(const char *host, IPAddress &out);
-    // Hard-reset the IP stack (AT+NETCLOSE then AT+NETOPEN). The modem's socket
-    // service can wedge after a dropped TCP connection so a fresh CIPOPEN keeps
-    // failing ("+CIPOPEN: x,1"); this clears it. Blocks a few seconds; loop only.
-    bool resetDataConnection();
     // UTC epoch from the modem's network clock (AT+CCLK, kept current by CTZU).
     // Works on LTE where SNTP/NTP (lwIP/WiFi only) can't reach a time server.
     // Returns 0 if the modem has no valid time yet. Loop task only.
