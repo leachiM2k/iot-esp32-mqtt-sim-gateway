@@ -23,8 +23,12 @@ static inline void feedWatchdog()
 
 // public methods
 
-bool SimCommunication::init()
+bool SimCommunication::init(const char *apn, const char *dns1, const char *dns2)
 {
+    this->apn = apn;
+    this->dns1 = dns1;
+    this->dns2 = dns2;
+
     SerialAT.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
     currentCallStatus = NO_CALL;
     modemReady = false;
@@ -1075,8 +1079,8 @@ void SimCommunication::setNetworkMode()
 
 void SimCommunication::setNetworkApn()
 {
-    Serial.printf("Set network apn : %s\n", NETWORK_APN);
-    modem.sendAT(GF("+CGDCONT=1,\"IP\",\""), NETWORK_APN, "\"");
+    Serial.printf("Set network apn : %s\n", apn.c_str());
+    modem.sendAT(GF("+CGDCONT=1,\"IP\",\""), apn.c_str(), "\"");
     if (modem.waitResponse() != 1)
     {
         Serial.println("Set network apn error !");
@@ -1140,8 +1144,8 @@ bool SimCommunication::awaitNetworkRegistration()
 
     // Point the modem at public DNS: the carrier/APN resolver was unreliable
     // (CDNSGIP "0,10" / CIPOPEN ",11"). Set after the data context is open.
-    Serial.printf("Set DNS servers: %s / %s\n", NETWORK_DNS_PRIMARY, NETWORK_DNS_SECONDARY);
-    modem.sendAT("+CDNSCFG=\"", NETWORK_DNS_PRIMARY, "\",\"", NETWORK_DNS_SECONDARY, "\"");
+    Serial.printf("Set DNS servers: %s / %s\n", dns1.c_str(), dns2.c_str());
+    modem.sendAT("+CDNSCFG=\"", dns1.c_str(), "\",\"", dns2.c_str(), "\"");
     if (modem.waitResponse() != 1)
     {
         Serial.println("Set DNS failed (modem may not support AT+CDNSCFG).");

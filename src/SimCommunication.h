@@ -56,8 +56,9 @@ class SimCommunication
 {
 public:
     // Returns true once the modem is fully initialized and ready. On failure
-    // the caller can keep running in a degraded (modem-less) mode.
-    bool init();
+    // the caller can keep running in a degraded (modem-less) mode. The APN and
+    // DNS servers come from the runtime config (see Config).
+    bool init(const char *apn, const char *dns1, const char *dns2);
     bool isModemReady() const;
     // Modem model string (e.g. "A7670E-FASE"); empty if the modem isn't ready.
     String getModemName();
@@ -145,6 +146,10 @@ private:
     current_call_status currentCallStatus = NO_CALL;
     bool modemReady = false;
     String imei; // cached at init; the IMEI never changes
+    // Network settings captured from the runtime config at init().
+    String apn;
+    String dns1;
+    String dns2;
 
     // GPS state machine (all GNSS modem access happens in updateGps()).
     bool gpsEnabled = false;            // GNSS currently powered

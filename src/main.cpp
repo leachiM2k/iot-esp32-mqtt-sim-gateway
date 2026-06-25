@@ -9,6 +9,8 @@
 #include "WifiConnection.h"
 #include "SimCommunication.h"
 #include "Connectivity.h"
+#include "Config.h"
+#include "ConfigServer.h"
 
 // Task-watchdog timeout. Must exceed the longest single blocking call in the
 // modem init (the SMS DONE wait, ~30 s) while still catching a real hang. The
@@ -21,6 +23,8 @@ WifiConnection wifiConnection;
 SimCommunication simCommunication;
 MqttService mqtt;
 Connectivity connectivity;
+Config config;
+ConfigServer configServer;
 
 String getCurrentTimeISO8601()
 {
@@ -418,7 +422,11 @@ void setup()
 {
     Serial.begin(115200); // Set console baud rate
 
-    configTzTime(TZ_INFO, NTP_SERVER);
+    // Load runtime config (NVS, with constants.h defaults) before anything uses
+    // it; values are editable via the on-device config web page (ConfigServer).
+    config.load();
+
+    configTzTime(config.values.tz.c_str(), config.values.ntp.c_str());
 
     String macStr = getCurrentMacAddress();
 
@@ -433,7 +441,9 @@ void setup()
     //    AND for calls/SMS. Bounded by timeouts; on failure stay up in a
     //    degraded mode so the device remains reachable (e.g. for a remote reboot
     //    once a transport comes up).
-    bool modemOk = simCommunication.init();
+    bool modemOk = simCommunication.init(config.values.apn.c_str(),
+                                         config.values.dns1.c_str(),
+                                         config.values.dns2.c_str());
     if (!modemOk)
     {
         Serial.println("Modem initialization failed - running in degraded mode.");
@@ -477,12 +487,16 @@ void setup()
     // overwrites it with the full "online" payload on every (re)connect.
     static String willMessage = "{\"status\":\"offline\",\"mac\":\"" + macStr + "\"}";
 
-    mqtt.begin(MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASSWORD,
+    mqtt.begin(config.values.mqttHost.c_str(), config.values.mqttPort,
+               config.values.mqttUser.c_str(), config.values.mqttPass.c_str(),
                clientId.c_str(), commandsTopic,
                infoTopic, willMessage.c_str(),
                onDataReceived, onMqttConnect, resolveBroker);
 
     connectivity.begin(wifiConnection, simCommunication, mqtt);
+
+    // On-device configuration web page (served on :80 while WiFi is connected).
+    configServer.begin(config);
 
     // Pick a transport and attempt the first connect right away, so retained
     // state is published as soon as a link is available.
@@ -498,6 +512,10 @@ void loop()
 
     // 1./2. Service WiFi portal and pick/switch the MQTT transport (WiFi>LTE).
     connectivity.update();
+
+    // Service the on-device config web page (only runs while WiFi is connected,
+    // so it never competes with WiFiManager's AP portal for port 80).
+    configServer.tick(wifiConnection.isConnected());
 
     // 3. Service MQTT: reconnect (with backoff) or pump PubSubClient. Incoming
     //    commands are dispatched from here via onDataReceived, on this task, so
