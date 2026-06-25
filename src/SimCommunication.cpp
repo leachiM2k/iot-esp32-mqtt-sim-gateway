@@ -96,6 +96,11 @@ bool SimCommunication::init()
     modem.sendAT("+CPMS=\"SM\",\"SM\",\"SM\"");
     modem.waitResponse();
 
+    // Cache the IMEI once (it never changes); used in the /info payload.
+    imei = modem.getIMEI();
+    Serial.print("IMEI: ");
+    Serial.println(imei);
+
     modemReady = true;
     Serial.println("Modem init complete.");
     return true;
@@ -115,15 +120,203 @@ String SimCommunication::getModemName()
     return modem.getModemName();
 }
 
-// Convert an NMEA ddmm.mmmmmm coordinate (as returned by the modem) to decimal
-// degrees. The sign of the input is preserved (negative = S/W).
-static double toDecimalDegrees(float nmea)
+String SimCommunication::getImei()
 {
-    double v = nmea < 0 ? -(double)nmea : (double)nmea;
-    int deg = (int)(v / 100.0);
-    double minutes = v - deg * 100.0;
-    double dec = deg + minutes / 60.0;
-    return nmea < 0 ? -dec : dec;
+    return imei;
+}
+
+network_info SimCommunication::readNetworkInfo()
+{
+    network_info n;
+    n.signal = 99; // 99 = unknown (CSQ convention)
+    if (!modemReady)
+    {
+        return n;
+    }
+
+    feedWatchdog();
+    n.oper = modem.getOperator();
+    n.signal = modem.getSignalQuality(); // CSQ 0..31, 99 = unknown
+
+    // Both the active radio access tech and the band sit in the +CPSI? line, e.g.
+    //   +CPSI: LTE,Online,262-03,0x8CB6,16718643,154,EUTRAN-BAND3,...
+    // The first field is the real RAT (LTE/GSM/WCDMA/NR), unlike AT+CNMP which
+    // only reports the *preference* (often AUTO).
+    feedWatchdog();
+    modem.sendAT("+CPSI?");
+    String resp;
+    if (modem.waitResponse(2000, resp) == 1)
+    {
+        int p = resp.indexOf("+CPSI:");
+        if (p >= 0)
+        {
+            int s = p + 6; // past "+CPSI:"
+            int comma = resp.indexOf(',', s);
+            if (comma > s)
+            {
+                n.mode = resp.substring(s, comma);
+                n.mode.trim();
+            }
+        }
+        int b = resp.indexOf("BAND");
+        if (b >= 0)
+        {
+            int start = resp.lastIndexOf(',', b) + 1;
+            int end = resp.indexOf(',', b);
+            if (end < 0)
+            {
+                end = resp.indexOf('\n', b);
+            }
+            if (end > start)
+            {
+                n.band = resp.substring(start, end);
+                n.band.trim();
+            }
+        }
+    }
+    if (n.mode.length() == 0)
+    {
+        n.mode = modem.getNetworkModes(); // fallback: preference (AUTO/LTE/...)
+    }
+    return n;
+}
+
+TinyGsm &SimCommunication::getModem()
+{
+    return modem;
+}
+
+bool SimCommunication::isDataConnected()
+{
+    if (!modemReady)
+    {
+        return false;
+    }
+    // isNetworkConnected() = registered (CEREG/CGREG); isGprsConnected() on the
+    // A7670 confirms the socket data context is open (NETOPEN? -> 1). Both must
+    // hold before a TCP socket can be opened.
+    return modem.isNetworkConnected() && modem.isGprsConnected();
+}
+
+bool SimCommunication::ensureDataConnection()
+{
+    if (!modemReady)
+    {
+        return false;
+    }
+    if (modem.isGprsConnected())
+    {
+        return true;
+    }
+    // Data context dropped (typically only on a CSFB call over a non-VoLTE
+    // network). Re-open it (AT+NETOPEN). On the verified VoLTE setup data
+    // survives the call, so this is effectively a no-op there.
+    feedWatchdog();
+    Serial.println("Data context down, re-opening (AT+NETOPEN)...");
+    modem.setNetworkActive();
+    return modem.isGprsConnected();
+}
+
+bool SimCommunication::resolveHost(const char *host, IPAddress &out)
+{
+    if (!modemReady)
+    {
+        return false;
+    }
+    feedWatchdog();
+    // AT+CDNSGIP="host" -> ... +CDNSGIP: <ok>,"<domain>","<ip>"[,"<ip2>"]
+    // The URC may arrive before or after OK depending on firmware, so we wait
+    // for the "+CDNSGIP:" tag itself, then collect the rest of that line.
+    modem.sendAT("+CDNSGIP=\"", host, "\"");
+    String before;
+    if (modem.waitResponse(12000L, before, GF("+CDNSGIP:")) != 1)
+    {
+        Serial.printf("DNS: no +CDNSGIP for %s\n", host);
+        return false;
+    }
+    feedWatchdog();
+    // Read the remainder of the URC line. There is no trailing OK after the URC
+    // in the async case, so this typically returns on timeout with the line in
+    // 'rest'; we parse it regardless of the return code.
+    String rest;
+    modem.waitResponse(3000L, rest);
+
+    // rest looks like:  1,"dev.rotmanov.de","217.160.172.133"
+    rest.trim();
+    if (rest.startsWith("0"))
+    {
+        Serial.printf("DNS: lookup failed for %s\n", host);
+        return false;
+    }
+    int q1 = rest.indexOf('"');            // domain open quote
+    int q2 = rest.indexOf('"', q1 + 1);    // domain close quote
+    int q3 = rest.indexOf('"', q2 + 1);    // ip open quote
+    int q4 = rest.indexOf('"', q3 + 1);    // ip close quote
+    if (q3 < 0 || q4 < 0)
+    {
+        Serial.printf("DNS: unparseable reply for %s: %s\n", host, rest.c_str());
+        return false;
+    }
+    String ip = rest.substring(q3 + 1, q4);
+    if (!out.fromString(ip))
+    {
+        Serial.printf("DNS: bad IP '%s' for %s\n", ip.c_str(), host);
+        return false;
+    }
+    Serial.printf("DNS: %s -> %s\n", host, ip.c_str());
+    return true;
+}
+
+bool SimCommunication::resetDataConnection()
+{
+    if (!modemReady)
+    {
+        return false;
+    }
+    Serial.println("Resetting LTE IP stack (NETCLOSE/NETOPEN)...");
+    feedWatchdog();
+    modem.sendAT("+NETCLOSE");
+    modem.waitResponse(20000L); // may report already-closed/error; tolerate it
+    delay(1000);
+    feedWatchdog();
+    bool ok = modem.setNetworkActive(); // NETOPEN
+    feedWatchdog();
+    bool up = ok && modem.isGprsConnected();
+    Serial.printf("IP stack reset %s\n", up ? "ok" : "failed");
+    return up;
+}
+
+time_t SimCommunication::getNetworkEpochUTC()
+{
+    if (!modemReady)
+    {
+        return 0;
+    }
+    int yr = 0, mo = 0, dy = 0, hh = 0, mm = 0, ss = 0;
+    float tz = 0; // local offset in quarter-hours (CCLK convention)
+    feedWatchdog();
+    if (!modem.getNetworkTime(&yr, &mo, &dy, &hh, &mm, &ss, &tz))
+    {
+        return 0;
+    }
+    if (yr < 2020)
+    {
+        return 0; // modem hasn't obtained network time yet
+    }
+
+    // Convert the broken-down date to a UTC epoch directly (newlib has no
+    // timegm, and mktime would apply the configured local TZ). Howard Hinnant's
+    // days-from-civil algorithm for the proleptic Gregorian calendar.
+    int y = yr - (mo <= 2);
+    int era = (y >= 0 ? y : y - 399) / 400;
+    unsigned yoe = (unsigned)(y - era * 400);
+    unsigned doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + dy - 1;
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    long days = (long)era * 146097 + (long)doe - 719468;
+    time_t asUtc = (time_t)days * 86400 + hh * 3600 + mm * 60 + ss;
+    // CCLK gives *local* time plus the zone offset (in 15-min units); subtract
+    // the offset to get true UTC.
+    return asUtc - (time_t)(tz * 15.0f * 60.0f);
 }
 
 static const unsigned long GPS_POLL_INTERVAL_MS = 2000;   // CGNSSINFO poll spacing
@@ -187,7 +380,7 @@ void SimCommunication::updateGps()
         if (!modem.enableGPS())
         {
             Serial.println("Failed to enable GNSS.");
-            lastGpsResult = {false, 0.0, 0.0, 0.0f, 0};
+            lastGpsResult = {false, 0.0, 0.0, 0.0f, 0, 0.0f};
             gpsResultReady = true;
             gpsRequested = false;
             return;
@@ -206,27 +399,35 @@ void SimCommunication::updateGps()
     lastGpsPoll = now;
 
     uint8_t status = 0;
-    float lat = 0, lon = 0, speed = 0, alt = 0;
+    float lat = 0, lon = 0, speed = 0, alt = 0, accuracy = 0;
     int vsat = 0, usat = 0;
     feedWatchdog();
-    if (modem.getGPS(&status, &lat, &lon, &speed, &alt, &vsat, &usat))
+    // The accuracy out-param carries the horizontal DOP for this firmware (the
+    // +CGNSSINFO field TinyGSM lands on is HDOP, e.g. 3.35).
+    if (modem.getGPS(&status, &lat, &lon, &speed, &alt, &vsat, &usat, &accuracy))
     {
         lastGpsResult.fix = true;
-        lastGpsResult.lat = toDecimalDegrees(lat);
-        lastGpsResult.lon = toDecimalDegrees(lon);
+        // This modem's +CGNSSINFO already reports lat/lon in decimal degrees
+        // (e.g. 51.2450867,N) with the hemisphere applied by TinyGSM — use them
+        // directly. (Despite the TinyGSM comment claiming ddmm.mmmmmm, the
+        // A7670E-FASE firmware emits decimal degrees here.)
+        lastGpsResult.lat = lat;
+        lastGpsResult.lon = lon;
         lastGpsResult.altitude = alt;
         lastGpsResult.satellites = vsat;
+        lastGpsResult.hdop = accuracy;
         gpsResultReady = true;
         gpsRequested = false;
-        Serial.printf("GPS fix: %.6f, %.6f (%d sats)\n",
-                      lastGpsResult.lat, lastGpsResult.lon, lastGpsResult.satellites);
+        Serial.printf("GPS fix: %.6f, %.6f (%d sats, hdop %.2f)\n",
+                      lastGpsResult.lat, lastGpsResult.lon,
+                      lastGpsResult.satellites, lastGpsResult.hdop);
         return;
     }
 
     if (now - gpsRequestStart > GPS_FIX_TIMEOUT_MS)
     {
         Serial.println("GPS fix timeout (GNSS stays on; try again).");
-        lastGpsResult = {false, 0.0, 0.0, 0.0f, 0};
+        lastGpsResult = {false, 0.0, 0.0, 0.0f, 0, 0.0f};
         gpsResultReady = true;
         gpsRequested = false;
     }
@@ -935,6 +1136,15 @@ bool SimCommunication::awaitNetworkRegistration()
     if (!modem.setNetworkActive())
     {
         Serial.println("Enable network failed!");
+    }
+
+    // Point the modem at public DNS: the carrier/APN resolver was unreliable
+    // (CDNSGIP "0,10" / CIPOPEN ",11"). Set after the data context is open.
+    Serial.printf("Set DNS servers: %s / %s\n", NETWORK_DNS_PRIMARY, NETWORK_DNS_SECONDARY);
+    modem.sendAT("+CDNSCFG=\"", NETWORK_DNS_PRIMARY, "\",\"", NETWORK_DNS_SECONDARY, "\"");
+    if (modem.waitResponse() != 1)
+    {
+        Serial.println("Set DNS failed (modem may not support AT+CDNSCFG).");
     }
     return true;
 }

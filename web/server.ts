@@ -31,10 +31,28 @@ const ALLOWED_ACTIONS = new Set(["reboot", "call", "accept", "hangup", "sms", "g
 const MAC_RE = /^[0-9A-Fa-f]{12}$/;
 const NUMBER_RE = /^\+?[0-9 ]{3,20}$/;
 
+// Origins allowed to open the WebSocket. Browsers always send an Origin header
+// on WS upgrades; a malicious site opened in another tab can otherwise open
+// ws://127.0.0.1:PORT/ws and fire commands (call/sms/reboot). Reject anything
+// not coming from this server. localhost is accepted because the user may open
+// the page via either hostname.
+const ALLOWED_ORIGINS = new Set([
+  `http://127.0.0.1:${PORT}`,
+  `http://localhost:${PORT}`,
+]);
+
 // --- State ------------------------------------------------------------------
 const browsers = new Set<WebSocket>();
 const macs = new Set<string>();
 let brokerConnected = false;
+
+// Cache of the latest event per <mac>/<sub>. The broker replays retained
+// messages to the bridge on subscribe, but only at bridge connect time —
+// before any browser is connected. New browsers would miss them. We cache
+// every event we see and replay the latest per topic on browser connect so
+// the UI shows the retained state immediately.
+interface CachedEvent { topic: string; mac: string; sub: string; payload: unknown; raw: string; ts: number; }
+const lastEvent = new Map<string, CachedEvent>();
 
 function broadcast(obj: unknown) {
   const s = JSON.stringify(obj);
@@ -44,8 +62,9 @@ function broadcast(obj: unknown) {
 }
 
 // Record a board MAC and notify browsers. Boards are discovered from their
-// retained status messages, which the broker replays on every (re)subscribe —
-// so the picker repopulates by itself after a bridge restart, no persistence.
+// (retained) status messages; the bridge caches every event and replays the
+// latest per topic to new browsers, so the picker and status repopulate by
+// themselves after a bridge restart — no persistence needed.
 function rememberMac(mac: string): boolean {
   if (!MAC_RE.test(mac) || macs.has(mac)) return false;
   macs.add(mac);
@@ -97,20 +116,32 @@ client.on("message", (topic: string, payloadBuf: Uint8Array) => {
   try {
     payload = JSON.parse(raw);
   } catch {
-    /* plain text (e.g. the /info topic) */
+    /* plain text (some topics may be non-JSON) */
   }
   console.log(`[evt] ${topic} ${raw.slice(0, 160)}`);
-  broadcast({ type: "event", topic, mac, sub, payload, raw, ts: Date.now() });
+  const evt = { type: "event", topic, mac, sub, payload, raw, ts: Date.now() } as const;
+  lastEvent.set(`${mac}/${sub}`, evt);
+  broadcast(evt);
 });
 
 // --- Command handling -------------------------------------------------------
-function publishCommand(mac: string, cmd: Record<string, unknown>): boolean {
+// Returns a Promise that resolves once the broker acknowledged the publish
+// (qos:1 PUBACK), so the browser ack reflects the actual outcome rather than
+// "we called publish()".
+function publishCommand(mac: string, cmd: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
   const topic = `${COMMANDS_BASE}/${mac}`;
-  client.publish(topic, JSON.stringify(cmd), { qos: 1 }, (err) => {
-    if (err) console.error("[mqtt] publish error:", err?.message);
+  const payload = JSON.stringify(cmd);
+  return new Promise((resolve) => {
+    client.publish(topic, payload, { qos: 1 }, (err) => {
+      if (err) {
+        console.error("[mqtt] publish error:", err?.message);
+        resolve({ ok: false, error: err?.message ?? "publish failed" });
+      } else {
+        resolve({ ok: true });
+      }
+    });
+    console.log(`[cmd] -> ${topic} ${payload}`);
   });
-  console.log(`[cmd] -> ${topic} ${JSON.stringify(cmd)}`);
-  return true;
 }
 
 interface CommandMsg {
@@ -122,7 +153,7 @@ interface CommandMsg {
   enable?: boolean;
 }
 
-function handleCommand(msg: CommandMsg): { ok: boolean; action?: string; error?: string } {
+async function handleCommand(msg: CommandMsg): Promise<{ ok: boolean; action?: string; error?: string }> {
   const action = String(msg.action ?? "");
   if (!ALLOWED_ACTIONS.has(action)) return { ok: false, action, error: `action '${action}' not allowed` };
 
@@ -148,8 +179,8 @@ function handleCommand(msg: CommandMsg): { ok: boolean; action?: string; error?:
     cmd.enable = msg.enable;
   }
 
-  publishCommand(mac, cmd);
-  return { ok: true, action };
+  const pub = await publishCommand(mac, cmd);
+  return pub.ok ? { ok: true, action } : { ok: false, action, error: pub.error };
 }
 
 // --- Static file serving + WebSocket endpoint ------------------------------
@@ -158,13 +189,18 @@ const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".woff2": "font/woff2",
+  ".dac": "application/octet-stream",
 };
 
 async function serveStatic(pathname: string): Promise<Response> {
   const p = pathname === "/" ? "/index.html" : pathname;
-  if (p.includes("..")) return new Response("forbidden", { status: 403 });
+  // Resolve against the public dir and refuse anything that escapes it.
+  // `new URL` collapses ".." segments, so we then check the result still lives
+  // under PUBLIC_DIR.
+  const fileUrl = new URL("." + p, PUBLIC_DIR);
+  if (!fileUrl.href.startsWith(PUBLIC_DIR.href)) return new Response("forbidden", { status: 403 });
   try {
-    const fileUrl = new URL("." + p, PUBLIC_DIR);
     const data = await Deno.readFile(fileUrl);
     const ext = p.slice(p.lastIndexOf("."));
     return new Response(data, {
@@ -182,11 +218,18 @@ Deno.serve({ port: PORT, hostname: "127.0.0.1" }, (req) => {
     if (req.headers.get("upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 426 });
     }
+    const origin = req.headers.get("origin");
+    if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+      return new Response("forbidden origin", { status: 403 });
+    }
     const { socket, response } = Deno.upgradeWebSocket(req);
     socket.onopen = () => {
       browsers.add(socket);
       socket.send(JSON.stringify({ type: "broker", connected: brokerConnected }));
       socket.send(JSON.stringify({ type: "macs", macs: [...macs] }));
+      // Replay the latest retained/cached event per topic so new browsers
+      // see the current board state immediately (info, callstatus, volte, …).
+      for (const evt of lastEvent.values()) socket.send(JSON.stringify(evt));
     };
     socket.onmessage = (ev) => {
       let msg: CommandMsg;
@@ -196,7 +239,7 @@ Deno.serve({ port: PORT, hostname: "127.0.0.1" }, (req) => {
         return;
       }
       if (msg.type === "command") {
-        socket.send(JSON.stringify({ type: "ack", ...handleCommand(msg) }));
+        handleCommand(msg).then((result) => socket.send(JSON.stringify({ type: "ack", ...result })));
       }
     };
     socket.onclose = () => browsers.delete(socket);
