@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de" data-theme="dark">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -413,13 +413,13 @@
     <div class="spacer"></div>
     <div class="board-pick">
       <span class="lbl">Board</span>
-      <select id="macSelect"><option value="">— wird erkannt —</option></select>
+      <select id="macSelect"><option value="">— auto-detecting —</option></select>
     </div>
     <div class="header-actions">
-      <button class="icon-btn" id="aboutBtn" title="Über / Funktionsübersicht" aria-label="Über / Funktionsübersicht">
+      <button class="icon-btn" id="aboutBtn" title="About / feature overview" aria-label="About / feature overview">
         <i data-lucide="info"></i>
       </button>
-      <button class="icon-btn" id="themeToggle" title="Theme wechseln" aria-label="Theme wechseln">
+      <button class="icon-btn" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
         <i data-lucide="moon"></i>
       </button>
     </div>
@@ -429,18 +429,18 @@
   <div class="incoming" id="incoming">
     <span class="ico"><i data-lucide="phone-incoming"></i></span>
     <div>
-      <div class="lbl">Eingehender Anruf</div>
+      <div class="lbl">Incoming call</div>
       <div class="num" id="incomingNum">—</div>
     </div>
     <div class="spacer"></div>
-    <button class="ok" data-action="accept"><i data-lucide="phone-call"></i> Annehmen</button>
-    <button class="bad" data-action="hangup"><i data-lucide="phone-off"></i> Ablehnen</button>
+    <button class="ok" data-action="accept"><i data-lucide="phone-call"></i> Accept</button>
+    <button class="bad" data-action="hangup"><i data-lucide="phone-off"></i> Reject</button>
   </div>
 
   <!-- Tab-Navigation (ohne Extras-Tab) -->
   <nav class="tabs">
-    <button class="tab active" data-tab="overview"><i data-lucide="layout-dashboard"></i> Übersicht</button>
-    <button class="tab" data-tab="call"><i data-lucide="phone"></i> Anruf
+    <button class="tab active" data-tab="overview"><i data-lucide="layout-dashboard"></i> Overview</button>
+    <button class="tab" data-tab="call"><i data-lucide="phone"></i> Call
       <span class="tab-badge zero" id="callBadgeTab">0</span>
     </button>
     <button class="tab" data-tab="sms"><i data-lucide="message-square"></i> SMS
@@ -455,7 +455,7 @@
       <h2><i data-lucide="activity"></i> Status <span class="pill-small call-badge NO_CALL" id="callBadge">NO_CALL</span></h2>
       <div class="info-grid">
         <div class="stat">
-          <div class="k">Gerät</div>
+          <div class="k">Device</div>
           <div class="v" id="deviceStatus"><span class="status-tag offline"><span class="dot"></span>—</span></div>
           <div class="time" id="deviceInfoTime"></div>
         </div>
@@ -476,38 +476,38 @@
           <div class="v muted" id="deviceTransport">—</div>
         </div>
         <div class="stat">
-          <div class="k">Netz</div>
+          <div class="k">Network</div>
           <div class="v muted" id="deviceNetwork">—</div>
         </div>
         <div class="stat">
-          <div class="k">Anruf zuletzt</div>
+          <div class="k">Last call</div>
           <div class="v muted" id="callTime">—</div>
         </div>
       </div>
     </section>
 
     <section class="card">
-      <h2><i data-lucide="grid"></i> Schnellzugriff</h2>
+      <h2><i data-lucide="grid"></i> Quick access</h2>
       <div class="tiles">
         <div class="tile" data-go="call">
           <div class="ico"><i data-lucide="phone-outgoing"></i></div>
-          <div class="title">Anruf starten</div>
-          <div class="meta">Nummer wählen &rarr;</div>
+          <div class="title">Start a call</div>
+          <div class="meta">Dial a number &rarr;</div>
         </div>
         <div class="tile" data-go="sms">
           <div class="ico"><i data-lucide="send"></i></div>
-          <div class="title">SMS senden</div>
-          <div class="meta">Neue Nachricht &rarr;</div>
+          <div class="title">Send SMS</div>
+          <div class="meta">New message &rarr;</div>
         </div>
         <div class="tile" data-go="sms">
           <div class="ico"><i data-lucide="inbox"></i></div>
-          <div class="title">Posteingang</div>
-          <div class="meta" id="overviewSmsCount">keine SMS</div>
+          <div class="title">Inbox</div>
+          <div class="meta" id="overviewSmsCount">no SMS</div>
         </div>
         <div class="tile" data-go="gps">
           <div class="ico"><i data-lucide="map"></i></div>
           <div class="title">GPS</div>
-          <div class="meta" id="overviewGps">nicht abgefragt</div>
+          <div class="meta" id="overviewGps">not requested</div>
         </div>
         <div class="tile" data-go="call">
           <div class="ico"><i data-lucide="signal"></i></div>
@@ -517,13 +517,13 @@
         <div class="tile" id="tileReboot">
           <div class="ico"><i data-lucide="rotate-cw"></i></div>
           <div class="title">Reboot</div>
-          <div class="meta">Board neustarten</div>
+          <div class="meta">Reboot board</div>
         </div>
       </div>
     </section>
 
     <section class="card">
-      <h2><i data-lucide="terminal"></i> Event-Log</h2>
+      <h2><i data-lucide="terminal"></i> Event log</h2>
       <div class="log" id="log"></div>
     </section>
   </div>
@@ -531,57 +531,57 @@
   <!-- ============ TAB: Anruf ============ -->
   <div class="tab-panel" data-tab="call">
     <section class="card">
-      <h2><i data-lucide="phone-outgoing"></i> Anruf starten</h2>
+      <h2><i data-lucide="phone-outgoing"></i> Start a call</h2>
       <div class="row">
         <input class="grow" id="callNumber" placeholder="+4915123456789" />
-        <button class="primary" data-action="call" data-from="callNumber"><i data-lucide="phone"></i> Anrufen</button>
+        <button class="primary" data-action="call" data-from="callNumber"><i data-lucide="phone"></i> Call</button>
       </div>
-      <div class="note" style="margin-top:8px">Ausgehender Anruf über das Board.</div>
+      <div class="note" style="margin-top:8px">Outgoing call via the board.</div>
     </section>
 
     <section class="card">
-      <h2><i data-lucide="phone-call"></i> Aktiver Anruf <span class="pill-small call-badge NO_CALL" id="callBadgeCall">NO_CALL</span></h2>
+      <h2><i data-lucide="phone-call"></i> Active call <span class="pill-small call-badge NO_CALL" id="callBadgeCall">NO_CALL</span></h2>
       <div class="row">
-        <span class="note" id="callTimeDetail">kein aktiver Anruf</span>
+        <span class="note" id="callTimeDetail">no active call</span>
         <div class="spacer"></div>
-        <button class="bad" data-action="hangup" id="btnHangup"><i data-lucide="phone-off"></i> Auflegen</button>
+        <button class="bad" data-action="hangup" id="btnHangup"><i data-lucide="phone-off"></i> Hang up</button>
       </div>
     </section>
 
     <section class="card">
       <h2><i data-lucide="signal"></i> VoLTE (Voice over LTE)</h2>
       <div class="row">
-        <button class="ok" id="btnVolteOn"><i data-lucide="zap"></i> VoLTE ein</button>
-        <button id="btnVolteOff"><i data-lucide="zap-off"></i> VoLTE aus (CSFB/2G)</button>
+        <button class="ok" id="btnVolteOn"><i data-lucide="zap"></i> VoLTE on</button>
+        <button id="btnVolteOff"><i data-lucide="zap-off"></i> VoLTE off (CSFB/2G)</button>
       </div>
       <div class="note" id="volteStatus" style="margin-top:8px">—</div>
-      <div class="note" style="margin-top:6px">„Ein" = IMS bevorzugt (Sprache + Daten gleichzeitig über LTE). „Aus" = leitungsvermittelt &rarr; Fallback auf 2G beim Anruf (Daten pausieren dann).</div>
+      <div class="note" style="margin-top:6px">"On" = IMS preferred (voice + data simultaneously over LTE). "Off" = circuit-switched &rarr; fallback to 2G on call (data pauses then).</div>
     </section>
   </div>
 
   <!-- ============ TAB: SMS ============ -->
   <div class="tab-panel" data-tab="sms">
     <section class="card">
-      <h2><i data-lucide="send"></i> SMS senden</h2>
-      <label for="smsNumber">Empfänger</label>
+      <h2><i data-lucide="send"></i> Send SMS</h2>
+      <label for="smsNumber">Recipient</label>
       <input id="smsNumber" placeholder="+4915123456789" />
-      <label for="smsMessage" style="margin-top:8px">Nachricht <span class="muted">(Cmd/Ctrl+Enter zum Senden)</span></label>
-      <textarea id="smsMessage" rows="3" placeholder="Nachricht…"></textarea>
+      <label for="smsMessage" style="margin-top:8px">Message <span class="muted">(Cmd/Ctrl+Enter to send)</span></label>
+      <textarea id="smsMessage" rows="3" placeholder="Message…"></textarea>
       <div class="row" style="margin-top:8px">
-        <button class="primary" id="btnSendSms"><i data-lucide="send"></i> SMS senden</button>
+        <button class="primary" id="btnSendSms"><i data-lucide="send"></i> Send SMS</button>
         <div class="spacer"></div>
-        <button class="ghost" data-action="reboot" id="btnReboot"><i data-lucide="rotate-cw"></i> Board neustarten</button>
+        <button class="ghost" data-action="reboot" id="btnReboot"><i data-lucide="rotate-cw"></i> Reboot board</button>
       </div>
-      <div class="note" style="margin-top:8px">⚠️ Ausgehende SMS werden GSM-7 kodiert — Umlaute/Emoji können verstümmelt werden (Empfang ist korrekt via UCS2).</div>
+      <div class="note" style="margin-top:8px">⚠️ Outgoing SMS are GSM-7 encoded — umlauts/emoji may be mangled (reception is correct via UCS2).</div>
     </section>
 
     <section class="card">
-      <h2><i data-lucide="inbox"></i> Empfangene SMS</h2>
+      <h2><i data-lucide="inbox"></i> Received SMS</h2>
       <div class="sms-wrap">
         <table>
-          <thead><tr><th style="width:90px">Empfangen</th><th style="width:150px">Absender</th><th>Nachricht</th></tr></thead>
+          <thead><tr><th style="width:90px">Received</th><th style="width:150px">Sender</th><th>Message</th></tr></thead>
           <tbody id="smsBody">
-            <tr><td colspan="3"><div class="empty"><i data-lucide="inbox"></i>Noch keine SMS</div></td></tr>
+<tr><td colspan="3"><div class="empty"><i data-lucide="inbox"></i>No messages yet</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -591,26 +591,26 @@
   <!-- ============ TAB: GPS ============ -->
   <div class="tab-panel" data-tab="gps">
     <section class="card">
-      <h2><i data-lucide="map-pin"></i> GPS-Position <span class="pill-small" id="gpsPill" style="display:none"></span></h2>
+      <h2><i data-lucide="map-pin"></i> GPS position <span class="pill-small" id="gpsPill" style="display:none"></span></h2>
       <div class="row">
-        <button class="primary" id="btnGps"><i data-lucide="locate"></i> GPS abfragen</button>
-        <button id="btnGpsOff"><i data-lucide="power"></i> GPS ausschalten</button>
+        <button class="primary" id="btnGps"><i data-lucide="locate"></i> Request GPS</button>
+        <button id="btnGpsOff"><i data-lucide="power"></i> Turn GPS off</button>
         <div class="spacer"></div>
         <span class="note" id="gpsStatus"></span>
       </div>
       <div class="gps-result" id="gpsResult" style="margin-top:12px">
         <div class="row" style="justify-content:space-between">
           <span class="gps-coords"><i data-lucide="navigation"></i> <span id="gpsCoords"></span>
-            <button class="ghost" id="gpsCopy" title="Koordinaten kopieren" aria-label="Koordinaten kopieren"><i data-lucide="copy"></i></button>
+            <button class="ghost" id="gpsCopy" title="Copy coordinates" aria-label="Copy coordinates"><i data-lucide="copy"></i></button>
           </span>
-          <a id="gpsLink" target="_blank" rel="noopener" class="note" style="text-decoration:none">In OpenStreetMap öffnen ↗</a>
+          <a id="gpsLink" target="_blank" rel="noopener" class="note" style="text-decoration:none">Open in OpenStreetMap ↗</a>
         </div>
-        <iframe id="gpsMap" title="Karte" loading="lazy"></iframe>
+        <iframe id="gpsMap" title="Map" loading="lazy"></iframe>
       </div>
-      <div class="empty" id="gpsEmpty"><i data-lucide="map-pin"></i>Keine Position — „GPS abfragen" klicken</div>
+      <div class="empty" id="gpsEmpty"><i data-lucide="map-pin"></i>No position — click "Request GPS"</div>
     </section>
-    <div class="note" style="padding:0 4px">GPS wird asynchron auf dem Board verarbeitet: das <code>gps</code>-Kommando fordert nur einen Fix an, das Board akquiriert ihn im Hintergrund und publiziert <code>/gps</code>, sobald er steht (Kaltstart bis ~90 s). GNSS bleibt nach einer Abfrage an (für schnellere Folge-Fixes); <code>gpsoff</code> schaltet es aus, um Strom zu sparen.</div>
-    <div class="note" style="padding:0 4px; margin-top:6px">ℹ️ Die Höhe wird über das <b>EGM96-Geoidmodell</b> von ellipsoidisch (WGS84) in orthometrische Höhe über NN umgerechnet. Der Geoid-Wert (Abweichung des Meeresspiegels vom Ellipsoid) wird in Klammern angezeigt.</div>
+    <div class="note" style="padding:0 4px">GPS is processed asynchronously on the board: the <code>gps</code> command only requests a fix; the board acquires it in the background and publishes <code>/gps</code> once it is ready (a cold start can take up to ~90 s). GNSS stays on after a request (for faster follow-up fixes); <code>gpsoff</code> turns it off to save power.</div>
+    <div class="note" style="padding:0 4px; margin-top:6px">ℹ️ The altitude is converted from ellipsoidal (WGS84) to orthometric height above sea level using the <b>EGM96 geoid model</b>. The geoid value (deviation of sea level from the ellipsoid) is shown in parentheses.</div>
   </div>
 </div>
 
@@ -618,37 +618,37 @@
 <div class="modal-backdrop" id="aboutModal" aria-hidden="true" role="dialog" aria-labelledby="aboutTitle">
   <div class="modal">
     <div class="modal-head">
-      <span class="title" id="aboutTitle"><i data-lucide="info"></i> Über diese Konsole</span>
+      <span class="title" id="aboutTitle"><i data-lucide="info"></i> About this console</span>
       <span class="subtitle">ESP32 A7670 · MQTT Bridge</span>
       <div class="spacer"></div>
-      <button class="icon-btn" id="aboutClose" title="Schließen" aria-label="Schließen"><i data-lucide="x"></i></button>
+      <button class="icon-btn" id="aboutClose" title="Close" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
     <div class="modal-body">
-      <p class="note">Lokale Web-Konsole für das ESP32-A7670-SMS/Anruf-Gateway. Die Kommunikation läuft über eine lokale Deno-Bridge, die MQTT-Credentials serverseitig hält und nur eine feste Kommando-Whitelist durchlässt. Boards werden automatisch erkannt (retained Messages).</p>
+      <p class="note">Local web console for the ESP32 A7670 SMS/call gateway. Communication runs through a local Deno bridge that keeps MQTT credentials server-side and only passes a fixed command whitelist. Boards are auto-discovered (retained messages).</p>
 
-      <h3>Verfügbar (in Firmware integriert)</h3>
+      <h3>Available (integrated in firmware)</h3>
       <ul class="note">
-        <li>✅ Gerätestatus anzeigen — Topic <code>/info</code></li>
-        <li>✅ Anrufstatus anzeigen — Topic <code>/callstatus</code></li>
-        <li>✅ Empfangene SMS auflisten — Topic <code>/sms</code></li>
-        <li>✅ Eingehenden Anruf annehmen — Kommando <code>accept</code></li>
-        <li>✅ Anruf ablehnen / auflegen — Kommando <code>hangup</code></li>
-        <li>✅ SMS senden — Kommando <code>sms</code></li>
-        <li>➕ Ausgehenden Anruf starten — Kommando <code>call</code></li>
-        <li>➕ Board neustarten — Kommando <code>reboot</code></li>
-        <li>➕ Eingehende Anrufernummer — Topic <code>/checkresult</code></li>
-        <li>➕ GPS-Position abfragen — Kommando <code>gps</code> → Topic <code>/gps</code></li>
-        <li>➕ GNSS ausschalten — Kommando <code>gpsoff</code></li>
-        <li>➕ VoLTE ein/aus — Kommando <code>volte</code> (<code>enable</code>) → Topic <code>/volte</code></li>
+        <li>✅ Show device status — topic <code>/info</code></li>
+        <li>✅ Show call status — topic <code>/callstatus</code></li>
+        <li>✅ List received SMS — topic <code>/sms</code></li>
+        <li>✅ Accept incoming call — command <code>accept</code></li>
+        <li>✅ Reject / hang up call — command <code>hangup</code></li>
+        <li>✅ Send SMS — command <code>sms</code></li>
+        <li>➕ Start outgoing call — command <code>call</code></li>
+        <li>➕ Reboot board — command <code>reboot</code></li>
+        <li>➕ Incoming caller number — topic <code>/checkresult</code></li>
+        <li>➕ Query GPS position — command <code>gps</code> → topic <code>/gps</code></li>
+        <li>➕ Turn GNSS off — command <code>gpsoff</code></li>
+        <li>➕ VoLTE on/off — command <code>volte</code> (<code>enable</code>) → topic <code>/volte</code></li>
       </ul>
 
-      <h3>Nicht integriert / Einschränkungen</h3>
+      <h3>Not integrated / limitations</h3>
       <ul class="note">
-        <li>❌ <b>USSD senden</b> — die Firmware hat <code>sendUSSD()</code>, ist aber <b>nicht</b> als MQTT-Kommando verdrahtet.</li>
-        <li>ℹ️ „Ablehnen" und „Auflegen" sind dasselbe Kommando (<code>hangup</code> / <code>AT+CHUP</code>).</li>
-        <li>ℹ️ Bridge nur auf <code>127.0.0.1</code> — nicht aus dem Netz erreichbar.</li>
-        <li>ℹ️ Publish-Rechte auf <code>esp32/commands/&lt;MAC&gt;</code> nötig.</li>
-        <li>ℹ️ Ausgehende SMS als GSM-7 — Umlaute/Emoji evtl. verstümmelt (Empfang korrekt via UCS2).</li>
+        <li>❌ <b>Send USSD</b> — the firmware has <code>sendUSSD()</code> but it is <b>not</b> wired as an MQTT command.</li>
+        <li>ℹ️ "Reject" and "Hang up" are the same command (<code>hangup</code> / <code>AT+CHUP</code>).</li>
+        <li>ℹ️ Bridge bound to <code>127.0.0.1</code> only — not reachable from the network.</li>
+        <li>ℹ️ Publish rights on <code>esp32/commands/&lt;MAC&gt;</code> required.</li>
+        <li>ℹ️ Outgoing SMS as GSM-7 — umlauts/emoji may be mangled (reception correct via UCS2).</li>
       </ul>
     </div>
   </div>
@@ -757,11 +757,11 @@ function escapeHtml(s) {
 // --- WebSocket to the local bridge -----------------------------------------
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => { setDot($("dotBridge"), true); setConn("connBridge", true); log("Bridge verbunden"); };
+  ws.onopen = () => { setDot($("dotBridge"), true); setConn("connBridge", true); log("Bridge connected"); };
   ws.onclose = () => {
     setDot($("dotBridge"), false); setConn("connBridge", false);
     setDot($("dotBroker"), false); setConn("connBroker", false);
-    log("Bridge getrennt — reconnect in 2s"); setTimeout(connect, 2000);
+    log("Bridge disconnected — reconnect in 2s"); setTimeout(connect, 2000);
   };
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
@@ -773,13 +773,13 @@ function handle(m) {
   switch (m.type) {
     case "broker":
       setDot($("dotBroker"), m.connected); setConn("connBroker", m.connected);
-      if (m.error) log("Broker-Fehler: " + m.error);
+      if (m.error) log("Broker error: " + m.error);
       break;
     case "macs": updateMacs(m.macs); break;
     case "event": onEvent(m); break;
     case "ack":
-      if (m.ok) toast("Kommando gesendet: " + m.action, "ok");
-      else toast("Fehler (" + (m.action||"?") + "): " + m.error, "bad");
+      if (m.ok) toast("Command sent: " + m.action, "ok");
+      else toast("Error (" + (m.action||"?") + "): " + m.error, "bad");
       break;
   }
 }
@@ -790,7 +790,7 @@ function updateMacs(macs) {
   const cur = selectedMac;
   sel.innerHTML = "";
   if (!knownMacs.length) {
-    sel.innerHTML = '<option value="">— wird erkannt —</option>';
+    sel.innerHTML = '<option value="">— auto-detecting —</option>';
   } else {
     for (const mac of knownMacs) {
       const o = document.createElement("option"); o.value = mac; o.textContent = mac; sel.appendChild(o);
@@ -811,11 +811,11 @@ function resetBoardView() {
   $("deviceInfoTime").textContent = "";
   setCallStatus("NO_CALL");
   $("callTime").textContent = "—";
-  $("callTimeDetail").textContent = "kein aktiver Anruf";
-  $("smsBody").innerHTML = '<tr><td colspan="3"><div class="empty"><i data-lucide="inbox"></i>Noch keine SMS</div></td></tr>';
+  $("callTimeDetail").textContent = "no active call";
+  $("smsBody").innerHTML = '<tr><td colspan="3"><div class="empty"><i data-lucide="inbox"></i>No messages yet</div></td></tr>';
   lucide.createIcons();
-  $("overviewSmsCount").textContent = "keine SMS";
-  $("overviewGps").textContent = "nicht abgefragt";
+  $("overviewSmsCount").textContent = "no SMS";
+  $("overviewGps").textContent = "not requested";
   $("gpsStatus").textContent = "";
   $("gpsResult").classList.remove("show");
   $("gpsEmpty").style.display = "block";
@@ -875,7 +875,7 @@ function showInfo(p, t) {
     $("deviceImei").textContent = "—";
     $("deviceTransport").textContent = "—";
     $("deviceNetwork").textContent = "—";
-    $("deviceInfoTime").textContent = t ? "zuletzt: " + t : "";
+    $("deviceInfoTime").textContent = t ? "last: " + t : "";
     return;
   }
   // New structured JSON payload
@@ -894,7 +894,7 @@ function showInfo(p, t) {
     $("deviceSignal").innerHTML = html;
     $("deviceSignal").classList.remove("muted");
   } else {
-    $("deviceSignal").textContent = sig === 99 ? "unbekannt" : "—";
+    $("deviceSignal").textContent = sig === 99 ? "unknown" : "—";
     $("deviceSignal").classList.add("muted");
   }
 
@@ -908,22 +908,22 @@ function showInfo(p, t) {
   if (net.band) netParts.push(net.band);
   $("deviceNetwork").textContent = netParts.length ? netParts.join(" · ") : "—";
 
-  $("deviceInfoTime").textContent = t ? "zuletzt: " + t : "";
+  $("deviceInfoTime").textContent = t ? "last: " + t : "";
 }
 
 function showVolte(p) {
   if (!p) return;
-  const state = p.enabled ? "AN (IMS)" : "AUS (CSFB)";
+  const state = p.enabled ? "ON (IMS)" : "OFF (CSFB)";
   $("volteStatus").textContent =
-    `${state} · CEVDP=${p.cevdp} · IMS verfügbar: ${p.ims_available ? "ja" : "nein"}` +
-    ` · registriert: ${p.ims_registered ? "ja" : "nein"}`;
+    `${state} · CEVDP=${p.cevdp} · IMS available: ${p.ims_available ? "yes" : "no"}` +
+    ` · registered: ${p.ims_registered ? "yes" : "no"}`;
   $("overviewVolte").textContent = state;
 }
 
 function showGps(p) {
   if (!p || !p.fix) {
-    $("gpsStatus").textContent = "Keine gültigen Koordinaten — bitte erneut versuchen (freie Sicht zum Himmel, Kaltstart kann dauern).";
-    $("overviewGps").textContent = "keine Koordinaten";
+    $("gpsStatus").textContent = "No valid coordinates — please try again (clear view of the sky; a cold start can take a while).";
+    $("overviewGps").textContent = "no coordinates";
     return;
   }
   const lat = Number(p.lat), lon = Number(p.lon);
@@ -935,7 +935,7 @@ function showGps(p) {
   const hdopStr = hdop != null && !isNaN(hdop)
     ? `HDOP ${hdop.toFixed(2)}${acc != null ? ` (≈${acc} m)` : ""}`
     : null;
-  const base = [`${sats} Satelliten`, hdopStr].filter(Boolean).join(" • ");
+  const base = [`${sats} satellites`, hdopStr].filter(Boolean).join(" • ");
   $("overviewGps").textContent = hdopStr ? `${sats} Sats · ${acc != null ? "≈" + acc + " m" : "HDOP " + hdop.toFixed(2)}` : `${sats} Sats`;
   $("gpsCoords").textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
   $("gpsLink").href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
@@ -950,22 +950,22 @@ function showGps(p) {
   // Höhe: ellipsoidisch (WGS84) → orthometrisch (ü. NN) via EGM96-Geoid.
   // h_ortho = h_ellip - N ; N = Geoidhöhe über dem Ellipsoid.
   if (altEllip == null) {
-    $("gpsStatus").textContent = base + " • Höhe unbekannt";
+    $("gpsStatus").textContent = base + " • altitude unknown";
   } else {
-    $("gpsStatus").textContent = base + " • Höhe wird berechnet…";
+    $("gpsStatus").textContent = base + " • calculating altitude…";
     EGM96.getHeight(lon, lat).then((N) => {
       const altOrtho = altEllip - N;
       $("gpsStatus").textContent =
-        `${base} • ${altOrtho.toFixed(1)} m ü. NN (Geoid: ${N >= 0 ? "+" : ""}${N.toFixed(1)} m)`;
+        `${base} • ${altOrtho.toFixed(1)} m above sea level (geoid: ${N >= 0 ? "+" : ""}${N.toFixed(1)} m)`;
     }).catch(() => {
-      $("gpsStatus").textContent = `${base} • ${altEllip} m ü. Ellipsoid (WGS84)`;
+      $("gpsStatus").textContent = `${base} • ${altEllip} m above ellipsoid (WGS84)`;
     });
   }
 }
 
 function showIncoming(show) {
   $("incoming").classList.toggle("show", show);
-  $("incomingNum").textContent = incomingNumber || "unbekannt";
+  $("incomingNum").textContent = incomingNumber || "unknown";
 }
 
 function setCallStatus(status, time) {
@@ -974,8 +974,8 @@ function setCallStatus(status, time) {
     b.textContent = status;
   });
   if (time) {
-    $("callTime").textContent = "zuletzt: " + time;
-    $("callTimeDetail").textContent = "zuletzt: " + time;
+    $("callTime").textContent = "last: " + time;
+    $("callTimeDetail").textContent = "last: " + time;
   }
   if (status === "RINGING") {
     showIncoming(true);
@@ -984,7 +984,7 @@ function setCallStatus(status, time) {
   } else if (status === "NO_CALL") {
     incomingNumber = ""; showIncoming(false);
     $("callTime").textContent = "—";
-    $("callTimeDetail").textContent = "kein aktiver Anruf";
+    $("callTimeDetail").textContent = "no active call";
   } else {
     showIncoming(false);
   }
@@ -1008,23 +1008,23 @@ function addSms(p, raw, t) {
   smsCount++;
   unreadSms++;
   updateBadges();
-  $("overviewSmsCount").textContent = `${smsCount} SMS${unreadSms > 0 ? ` · ${unreadSms} neu` : ""}`;
+  $("overviewSmsCount").textContent = `${smsCount} SMS${unreadSms > 0 ? ` · ${unreadSms} new` : ""}`;
 }
 
 // --- Sending commands -------------------------------------------------------
 function sendCommand(obj) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) { toast("Bridge nicht verbunden", "bad"); return; }
-  if (!selectedMac) { toast("Kein Board ausgewählt", "bad"); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { toast("Bridge not connected", "bad"); return; }
+  if (!selectedMac) { toast("No board selected", "bad"); return; }
   ws.send(JSON.stringify({ type: "command", mac: selectedMac, ...obj }));
 }
 
 document.querySelectorAll("button[data-action]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const action = btn.dataset.action;
-    if (action === "reboot" && !confirm("Board wirklich neustarten?")) return;
+    if (action === "reboot" && !confirm("Really reboot the board?")) return;
     if (action === "call") {
       const number = $(btn.dataset.from).value.trim();
-      if (!number) return toast("Nummer fehlt", "bad");
+      if (!number) return toast("Number missing", "bad");
       sendCommand({ action, number });
     } else {
       sendCommand({ action });
@@ -1033,37 +1033,37 @@ document.querySelectorAll("button[data-action]").forEach((btn) => {
 });
 
 $("tileReboot").addEventListener("click", () => {
-  if (confirm("Board wirklich neustarten?")) sendCommand({ action: "reboot" });
+  if (confirm("Really reboot the board?")) sendCommand({ action: "reboot" });
 });
 
 $("btnGps").addEventListener("click", () => {
-  $("gpsStatus").textContent = "Koordinaten werden abgefragt… (Kaltstart bis ~90 s)";
-  $("overviewGps").textContent = "wird abgefragt…";
+  $("gpsStatus").textContent = "Requesting coordinates… (cold start up to ~90 s)";
+  $("overviewGps").textContent = "requesting…";
   sendCommand({ action: "gps" });
 });
 
 $("btnGpsOff").addEventListener("click", () => {
-  $("gpsStatus").textContent = "GNSS wird ausgeschaltet (Strom sparen).";
-  $("overviewGps").textContent = "ausgeschaltet";
+  $("gpsStatus").textContent = "Turning GNSS off (saving power).";
+  $("overviewGps").textContent = "turned off";
   sendCommand({ action: "gpsoff" });
 });
 
 $("btnVolteOn").addEventListener("click", () => {
-  $("volteStatus").textContent = "VoLTE wird eingeschaltet…";
-  $("overviewVolte").textContent = "wird eingeschaltet…";
+  $("volteStatus").textContent = "Enabling VoLTE…";
+  $("overviewVolte").textContent = "enabling…";
   sendCommand({ action: "volte", enable: true });
 });
 $("btnVolteOff").addEventListener("click", () => {
-  $("volteStatus").textContent = "VoLTE wird ausgeschaltet (CSFB/2G)…";
-  $("overviewVolte").textContent = "wird ausgeschaltet…";
+  $("volteStatus").textContent = "Disabling VoLTE (CSFB/2G)…";
+  $("overviewVolte").textContent = "disabling…";
   sendCommand({ action: "volte", enable: false });
 });
 
 $("btnSendSms").addEventListener("click", () => {
   const number = $("smsNumber").value.trim();
   const message = $("smsMessage").value;
-  if (!number) return toast("Nummer fehlt", "bad");
-  if (!message) return toast("Nachricht fehlt", "bad");
+  if (!number) return toast("Number missing", "bad");
+  if (!message) return toast("Message missing", "bad");
   sendCommand({ action: "sms", number, message });
   $("smsMessage").value = "";
 });
@@ -1079,7 +1079,7 @@ $("callNumber").addEventListener("keydown", (e) => {
 // Copy GPS coords
 $("gpsCopy").addEventListener("click", () => {
   const txt = $("gpsCoords").textContent;
-  navigator.clipboard.writeText(txt).then(() => toast("Koordinaten kopiert", "ok"), () => toast("Kopieren fehlgeschlagen", "bad"));
+  navigator.clipboard.writeText(txt).then(() => toast("Coordinates copied", "ok"), () => toast("Copy failed", "bad"));
 });
 
 // --- Init ------------------------------------------------------------------

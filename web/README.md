@@ -6,7 +6,7 @@ WebSocket listener.
 
 ```
 Browser ──WS(JSON)──> Deno bridge (127.0.0.1) ──TCP MQTT──> broker:1883
-        (no creds)      (holds creds, command whitelist)
+         (no creds)      (holds creds, command whitelist)
 ```
 
 The bridge subscribes to `esp32/events/#`, forwards events to the browser, and
