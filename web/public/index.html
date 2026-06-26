@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ESP32 A7670 — MQTT Console</title>
+<link rel="stylesheet" href="vendor/fonts.css" />
+<script src="vendor/lucide.min.js"></script>
+<script src="vendor/egm96.js"></script>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg-elev: #0f141b;
+    --panel: #131922;
+    --panel-2: #1a212c;
+    --panel-3: #232c38;
+    --line: #232c38;
+    --line-soft: #1c2330;
+    --txt: #e6edf3;
+    --txt-2: #b8c2cf;
+    --muted: #7a8699;
+    --muted-2: #5a6473;
+    --accent: #4ea1ff;
+    --accent-2: #6db4ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --ring: #d29922;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-xs: 6px;
+    --transition: 160ms cubic-bezier(.4,0,.2,1);
+    --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  }
+
+  [data-theme="light"] {
+    --bg: #f6f8fa;
+    --bg-elev: #ffffff;
+    --panel: #ffffff;
+    --panel-2: #f1f4f8;
+    --panel-3: #e6ebf1;
+    --line: #d9dee4;
+    --line-soft: #e6ebf1;
+    --txt: #1f2328;
+    --txt-2: #3a424d;
+    --muted: #636c76;
+    --muted-2: #8b939e;
+    --accent: #0969da;
+    --accent-2: #218bff;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 13px/1.5 var(--font);
+    background: var(--bg);
+    color: var(--txt);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #app {
+    max-width: 960px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0 12px 24px;
+  }
+
+  /* Header / Statusbar */
+  header {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px;
+    margin: 0 -12px 0;
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  header .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  header .brand .logo {
+    width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto;
+    background: linear-gradient(135deg, var(--accent), #7c5cff);
+    display: grid; place-items: center; color: #fff;
+    box-shadow: 0 0 16px -4px var(--accent);
+  }
+  header .brand .logo svg { width: 16px; height: 16px; }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+  header h1 .sub { color: var(--muted); font-weight: 400; margin-left: 6px; }
+
+  .conn-group { display: flex; align-items: center; gap: 6px; }
+  .conn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 9px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    font-size: 11px; font-weight: 500; color: var(--muted);
+  }
+  .conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); transition: background var(--transition); }
+  .conn .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .conn.on { color: var(--txt); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+
+  .spacer { flex: 1; }
+
+  /* Board selector */
+  .board-pick {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 3px 3px 3px 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+  }
+  .board-pick .lbl { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .board-pick select {
+    font: inherit; font-size: 12px; font-weight: 600;
+    color: var(--txt); background: var(--panel-3);
+    border: none; border-radius: 999px; padding: 5px 10px;
+    cursor: pointer; min-width: 140px;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%237a8699' stroke-width='2.5'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat; background-position: right 8px center; padding-right: 24px;
+  }
+  .board-pick select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .header-actions { display: flex; align-items: center; gap: 6px; }
+  .icon-btn {
+    width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+    color: var(--muted); cursor: pointer; transition: all var(--transition);
+  }
+  .icon-btn:hover { color: var(--txt); background: var(--panel-3); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  /* Tab-Navigation */
+  .tabs {
+    display: flex; gap: 4px; margin: 14px 0 4px;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  .tab {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 14px; margin-bottom: -1px;
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); font: inherit; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all var(--transition); white-space: nowrap;
+    position: relative;
+  }
+  .tab svg { width: 15px; height: 15px; }
+  .tab:hover { color: var(--txt-2); background: color-mix(in srgb, var(--txt) 4%, transparent); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab-badge {
+    min-width: 17px; height: 17px; padding: 0 5px;
+    border-radius: 999px; background: var(--bad); color: #fff;
+    font-size: 10.5px; font-weight: 700; display: grid; place-items: center;
+    line-height: 1; animation: badgePulse 1.5s infinite;
+  }
+  .tab-badge.zero { display: none; }
+  @keyframes badgePulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 25%, transparent); } }
+
+  .tab-panel { display: none; padding-top: 14px; }
+  .tab-panel.active { display: block; animation: fadeIn .18s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } }
+
+  /* Cards */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .card h2 {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 12px; font-weight: 600;
+  }
+  .card h2 svg { width: 13px; height: 13px; opacity: .8; }
+  .card h2 .pill-small {
+    margin-left: auto; padding: 2px 8px; border-radius: 999px;
+    background: var(--panel-3); font-size: 10px; color: var(--txt-2);
+    font-weight: 600; letter-spacing: 0;
+  }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+
+  .stat {
+    padding: 11px 12px; background: var(--panel-2); border-radius: var(--radius-sm);
+    border: 1px solid var(--line-soft);
+  }
+  .stat .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
+  .stat .v { font-size: 13px; color: var(--txt); font-weight: 500; word-break: break-word; }
+  .stat .v.muted { color: var(--muted-2); font-weight: 400; }
+  .stat .time { font-size: 10.5px; color: var(--muted-2); margin-top: 4px; font-family: var(--mono); }
+
+  /* Online/offline status tag */
+  .status-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 11.5px;
+    border: 1px solid var(--line); background: var(--panel-3);
+  }
+  .status-tag .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .status-tag.online { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--panel-3)); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+  .status-tag.online .dot { animation: pulse 2s infinite; }
+  .status-tag.offline { color: var(--muted); }
+
+  /* Signal strength bars (CSQ 0–31, 99=unknown) */
+  .signal-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 15px; vertical-align: middle; }
+  .signal-bars .bar { width: 3px; border-radius: 1px; background: var(--line); }
+  .signal-bars .bar:nth-child(1) { height: 30%; }
+  .signal-bars .bar:nth-child(2) { height: 55%; }
+  .signal-bars .bar:nth-child(3) { height: 78%; }
+  .signal-bars .bar:nth-child(4) { height: 100%; }
+  .signal-bars .bar.on { background: var(--ok); }
+  .signal-val { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: 4px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 11.5px;
+    background: var(--panel-3); border: 1px solid var(--line);
+  }
+  .badge svg { width: 11px; height: 11px; }
+  .badge.NO_CALL, .badge.UNKNOWN { color: var(--muted); }
+  .badge.CALLING { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); background: color-mix(in srgb, var(--accent) 12%, var(--panel-3)); }
+  .badge.RINGING { color: var(--ring); border-color: var(--ring); animation: pulse 1s infinite; }
+  .badge.ESTABLISHED { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); background: color-mix(in srgb, var(--ok) 12%, var(--panel-3)); }
+  @keyframes pulse { 50% { opacity: .45; } }
+
+  /* Inputs */
+  input, textarea {
+    font: inherit; font-size: 13px; color: var(--txt); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 11px;
+    width: 100%; transition: border-color var(--transition), box-shadow var(--transition);
+  }
+  input:focus, textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  textarea { resize: none; font-family: var(--font); }
+  label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 5px; font-weight: 500; }
+
+  /* Buttons */
+  button {
+    font: inherit; font-size: 12.5px; font-weight: 500; color: var(--txt);
+    background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 8px 13px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    transition: all var(--transition); white-space: nowrap;
+  }
+  button svg { width: 14px; height: 14px; }
+  button:hover:not(:disabled) { background: color-mix(in srgb, var(--txt) 8%, var(--panel-3)); border-color: var(--muted-2); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.primary {
+    background: var(--accent); color: #03121f; border-color: var(--accent); font-weight: 600;
+    box-shadow: 0 0 14px -6px var(--accent);
+  }
+  button.primary:hover:not(:disabled) { background: var(--accent-2); }
+  button.ok { background: var(--ok); color: #04210d; border-color: var(--ok); font-weight: 600; }
+  button.ok:hover:not(:disabled) { background: #4acf63; }
+  button.bad { background: var(--bad); color: #2a0606; border-color: var(--bad); font-weight: 600; }
+  button.bad:hover:not(:disabled) { background: #ff6961; }
+  button.ghost { background: transparent; }
+  button.ghost:hover:not(:disabled) { background: var(--panel-2); }
+
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .grow { flex: 1; min-width: 0; }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .note { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .note b { color: var(--txt-2); }
+  code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size: .9em; }
+  .muted { color: var(--muted); }
+
+  /* Incoming call banner — global overlay */
+  .incoming {
+    position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--ring) 20%, var(--panel)), var(--panel));
+    border: 1px solid var(--ring); border-radius: var(--radius);
+    padding: 12px 18px; display: none; align-items: center; gap: 14px;
+    box-shadow: 0 0 40px -8px var(--ring), var(--shadow);
+    z-index: 40; min-width: 320px; max-width: calc(100vw - 32px);
+  }
+  .incoming.show { display: flex; animation: dropIn .25s cubic-bezier(.34,1.56,.64,1); }
+  .incoming .ico {
+    width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto;
+    background: color-mix(in srgb, var(--ring) 30%, transparent);
+    display: grid; place-items: center; color: var(--ring);
+    animation: ringPulse 1s infinite;
+  }
+  .incoming .ico svg { width: 18px; height: 18px; }
+  .incoming .num { font-size: 16px; font-weight: 700; }
+  .incoming .lbl { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  @keyframes dropIn { from { opacity: 0; transform: translate(-50%, -8px); } }
+  @keyframes ringPulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ring) 0%, transparent); } }
+
+  /* SMS table */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line);
+    color: var(--muted); font-weight: 500; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+  }
+  td { padding: 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  td.msg { white-space: pre-wrap; word-break: break-word; color: var(--txt-2); }
+  td .sender { font-weight: 600; color: var(--txt); font-family: var(--mono); font-size: 12px; }
+  td .ts { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  tbody tr { transition: background var(--transition); }
+  tbody tr:hover { background: color-mix(in srgb, var(--txt) 3%, transparent); }
+  tbody tr.unread { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  tbody tr.unread td:first-child { border-left: 2px solid var(--accent); }
+
+  .sms-wrap { max-height: 460px; overflow: auto; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+  .empty { padding: 28px; text-align: center; color: var(--muted-2); font-size: 12.5px; }
+  .empty svg { width: 24px; height: 24px; opacity: .5; display: block; margin: 0 auto 8px; }
+
+  /* GPS */
+  .gps-result { display: none; flex-direction: column; gap: 10px; }
+  .gps-result.show { display: flex; }
+  .gps-coords { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--txt); }
+  #gpsMap { width: 100%; height: 340px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+
+  /* Event log */
+  .log {
+    font-family: var(--mono); font-size: 11.5px;
+    background: var(--bg-elev); border-radius: var(--radius-sm); padding: 10px;
+    border: 1px solid var(--line-soft);
+    max-height: 300px; overflow: auto;
+  }
+  .log div { padding: 2px 0; color: var(--muted); white-space: pre-wrap; word-break: break-word; line-height: 1.5; border-bottom: 1px solid var(--line-soft); }
+  .log div:last-child { border-bottom: none; }
+  .log div .t { color: var(--muted-2); }
+  .log div .sub { color: var(--accent-2); }
+  .log div .raw { color: var(--txt-2); }
+
+  /* Quick-action tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .tile {
+    padding: 12px; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+    cursor: pointer; transition: all var(--transition); display: flex; flex-direction: column; gap: 4px;
+  }
+  .tile:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 5%, var(--panel-2)); }
+  .tile .ico { width: 26px; height: 26px; border-radius: var(--radius-xs); background: var(--panel-3); display: grid; place-items: center; color: var(--accent); margin-bottom: 4px; }
+  .tile .ico svg { width: 15px; height: 15px; }
+  .tile .title { font-size: 12.5px; font-weight: 600; color: var(--txt); }
+  .tile .meta { font-size: 11px; color: var(--muted); }
+
+  /* Modal (Über) */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 80;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 40px 16px; overflow-y: auto;
+  }
+  .modal-backdrop.show { display: flex; animation: fadeIn .18s ease; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow), 0 0 60px -20px rgba(0,0,0,.6);
+    max-width: 680px; width: 100%; overflow: hidden;
+    animation: modalIn .25s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(-12px) scale(.98); } }
+  .modal-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+  }
+  .modal-head .title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+  .modal-head .title svg { width: 16px; height: 16px; color: var(--accent); }
+  .modal-head .subtitle { font-size: 11px; color: var(--muted); margin-left: 4px; }
+  .modal-body { padding: 16px 18px 20px; max-height: 70vh; overflow-y: auto; }
+  .modal-body p { margin: 0 0 10px; }
+  .modal-body ul { margin: 6px 0 14px; padding-left: 18px; }
+  .modal-body li { margin: 3px 0; }
+  .modal-body h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+
+  /* Toast */
+  #toast { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; z-index: 90; }
+  .toast {
+    padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+    background: var(--panel-2); box-shadow: var(--shadow);
+    animation: slideIn .2s ease; font-size: 12.5px; display: flex; align-items: center; gap: 8px;
+  }
+  .toast svg { width: 14px; height: 14px; flex: 0 0 auto; }
+  .toast.ok { border-color: var(--ok); } .toast.ok svg { color: var(--ok); }
+  .toast.bad { border-color: var(--bad); } .toast.bad svg { color: var(--bad); }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } }
+
+  @media (max-width: 720px) {
+    header { gap: 8px; }
+    header h1 .sub { display: none; }
+    .board-pick select { min-width: 110px; }
+    .tabs { gap: 2px; }
+    .tab { padding: 8px 10px; font-size: 12.5px; }
+    .modal-backdrop { padding: 16px 8px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">
+      <div class="logo"><i data-lucide="radio-tower"></i></div>
+      <h1>ESP32 A7670 <span class="sub">· MQTT Console</span></h1>
+    </div>
+    <div class="conn-group">
+      <span class="conn" id="connBridge"><span id="dotBridge" class="dot"></span> Bridge</span>
+      <span class="conn" id="connBroker"><span id="dotBroker" class="dot"></span> Broker</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="board-pick">
+      <span class="lbl">Board</span>
+      <select id="macSelect"><option value="">— auto-detecting —</option></select>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="aboutBtn" title="About / feature overview" aria-label="About / feature overview">
+        <i data-lucide="info"></i>
+      </button>
+      <button class="icon-btn" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
+        <i data-lucide="moon"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Incoming call banner — global overlay -->
+  <div class="incoming" id="incoming">
+    <span class="ico"><i data-lucide="phone-incoming"></i></span>
+    <div>
+      <div class="lbl">Incoming call</div>
+      <div class="num" id="incomingNum">—</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="ok" data-action="accept"><i data-lucide="phone-call"></i> Accept</button>
+    <button class="bad" data-action="hangup"><i data-lucide="phone-off"></i> Reject</button>
+  </div>
+
+  <!-- Tab-Navigation (ohne Extras-Tab) -->
+  <nav class="tabs">
+    <button class="tab active" data-tab="overview"><i data-lucide="layout-dashboard"></i> Overview</button>
+    <button class="tab" data-tab="call"><i data-lucide="phone"></i> Call
+      <span class="tab-badge zero" id="callBadgeTab">0</span>
+    </button>
+    <button class="tab" data-tab="sms"><i data-lucide="message-square"></i> SMS
+      <span class="tab-badge zero" id="smsBadgeTab">0</span>
+    </button>
+    <button class="tab" data-tab="gps"><i data-lucide="map-pin"></i> GPS</button>
+  </nav>
+
+  <!-- ============ TAB: Übersicht ============ -->
+  <div class="tab-panel active" data-tab="overview">
+    <section class="card">
+      <h2><i data-lucide="activity"></i> Status <span class="pill-small call-badge NO_CALL" id="callBadge">NO_CALL</span></h2>
+      <div class="info-grid">
+        <div class="stat">
+          <div class="k">Device</div>
+          <div class="v" id="deviceStatus"><span class="status-tag offline"><span class="dot"></span>—</span></div>
+          <div class="time" id="deviceInfoTime"></div>
+        </div>
+        <div class="stat">
+          <div class="k">Signal</div>
+          <div class="v muted" id="deviceSignal">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">Modem</div>
+          <div class="v muted" id="deviceModem">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">IMEI</div>
+          <div class="v muted" id="deviceImei">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">Transport</div>
+          <div class="v muted" id="deviceTransport">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">Network</div>
+          <div class="v muted" id="deviceNetwork">—</div>
+        </div>
+        <div class="stat">
+          <div class="k">Last call</div>
+          <div class="v muted" id="callTime">—</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><i data-lucide="grid"></i> Quick access</h2>
+      <div class="tiles">
+        <div class="tile" data-go="call">
+          <div class="ico"><i data-lucide="phone-outgoing"></i></div>
+          <div class="title">Start a call</div>
+          <div class="meta">Dial a number &rarr;</div>
+        </div>
+        <div class="tile" data-go="sms">
+          <div class="ico"><i data-lucide="send"></i></div>
+          <div class="title">Send SMS</div>
+          <div class="meta">New message &rarr;</div>
+        </div>
+        <div class="tile" data-go="sms">
+          <div class="ico"><i data-lucide="inbox"></i></div>
+          <div class="title">Inbox</div>
+          <div class="meta" id="overviewSmsCount">no SMS</div>
+        </div>
+        <div class="tile" data-go="gps">
+          <div class="ico"><i data-lucide="map"></i></div>
+          <div class="title">GPS</div>
+          <div class="meta" id="overviewGps">not requested</div>
+        </div>
+        <div class="tile" data-go="call">
+          <div class="ico"><i data-lucide="signal"></i></div>
+          <div class="title">VoLTE</div>
+          <div class="meta" id="overviewVolte">—</div>
+        </div>
+        <div class="tile" id="tileReboot">
+          <div class="ico"><i data-lucide="rotate-cw"></i></div>
+          <div class="title">Reboot</div>
+          <div class="meta">Reboot board</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><i data-lucide="terminal"></i> Event log</h2>
+      <div class="log" id="log"></div>
+    </section>
+  </div>
+
+  <!-- ============ TAB: Anruf ============ -->
+  <div class="tab-panel" data-tab="call">
+    <section class="card">
+      <h2><i data-lucide="phone-outgoing"></i> Start a call</h2>
+      <div class="row">
+        <input class="grow" id="callNumber" placeholder="+4915123456789" />
+        <button class="primary" data-action="call" data-from="callNumber"><i data-lucide="phone"></i> Call</button>
+      </div>
+      <div class="note" style="margin-top:8px">Outgoing call via the board.</div>
+    </section>
+
+    <section class="card">
+      <h2><i data-lucide="phone-call"></i> Active call <span class="pill-small call-badge NO_CALL" id="callBadgeCall">NO_CALL</span></h2>
+      <div class="row">
+        <span class="note" id="callTimeDetail">no active call</span>
+        <div class="spacer"></div>
+        <button class="bad" data-action="hangup" id="btnHangup"><i data-lucide="phone-off"></i> Hang up</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><i data-lucide="signal"></i> VoLTE (Voice over LTE)</h2>
+      <div class="row">
+        <button class="ok" id="btnVolteOn"><i data-lucide="zap"></i> VoLTE on</button>
+        <button id="btnVolteOff"><i data-lucide="zap-off"></i> VoLTE off (CSFB/2G)</button>
+      </div>
+      <div class="note" id="volteStatus" style="margin-top:8px">—</div>
+      <div class="note" style="margin-top:6px">"On" = IMS preferred (voice + data simultaneously over LTE). "Off" = circuit-switched &rarr; fallback to 2G on call (data pauses then).</div>
+    </section>
+  </div>
+
+  <!-- ============ TAB: SMS ============ -->
+  <div class="tab-panel" data-tab="sms">
+    <section class="card">
+      <h2><i data-lucide="send"></i> Send SMS</h2>
+      <label for="smsNumber">Recipient</label>
+      <input id="smsNumber" placeholder="+4915123456789" />
+      <label for="smsMessage" style="margin-top:8px">Message <span class="muted">(Cmd/Ctrl+Enter to send)</span></label>
+      <textarea id="smsMessage" rows="3" placeholder="Message…"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="btnSendSms"><i data-lucide="send"></i> Send SMS</button>
+        <div class="spacer"></div>
+        <button class="ghost" data-action="reboot" id="btnReboot"><i data-lucide="rotate-cw"></i> Reboot board</button>
+      </div>
+      <div class="note" style="margin-top:8px">⚠️ Outgoing SMS are GSM-7 encoded — umlauts/emoji may be mangled (reception is correct via UCS2).</div>
+    </section>
+
+    <section class="card">
+      <h2><i data-lucide="inbox"></i> Received SMS</h2>
+      <div class="sms-wrap">
+        <table>
+          <thead><tr><th style="width:90px">Received</th><th style="width:150px">Sender</th><th>Message</th></tr></thead>
+          <tbody id="smsBody">
+<tr><td colspan="3"><div class="empty"><i data-lucide="inbox"></i>No messages yet</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ TAB: GPS ============ -->
+  <div class="tab-panel" data-tab="gps">
+    <section class="card">
+      <h2><i data-lucide="map-pin"></i> GPS position <span class="pill-small" id="gpsPill" style="display:none"></span></h2>
+      <div class="row">
+        <button class="primary" id="btnGps"><i data-lucide="locate"></i> Request GPS</button>
+        <button id="btnGpsOff"><i data-lucide="power"></i> Turn GPS off</button>
+        <div class="spacer"></div>
+        <span class="note" id="gpsStatus"></span>
+      </div>
+      <div class="gps-result" id="gpsResult" style="margin-top:12px">
+        <div class="row" style="justify-content:space-between">
+          <span class="gps-coords"><i data-lucide="navigation"></i> <span id="gpsCoords"></span>
+            <button class="ghost" id="gpsCopy" title="Copy coordinates" aria-label="Copy coordinates"><i data-lucide="copy"></i></button>
+          </span>
+          <a id="gpsLink" target="_blank" rel="noopener" class="note" style="text-decoration:none">Open in OpenStreetMap ↗</a>
+        </div>
+        <iframe id="gpsMap" title="Map" loading="lazy"></iframe>
+      </div>
+      <div class="empty" id="gpsEmpty"><i data-lucide="map-pin"></i>No position — click "Request GPS"</div>
+    </section>
+    <div class="note" style="padding:0 4px">GPS is processed asynchronously on the board: the <code>gps</code> command only requests a fix; the board acquires it in the background and publishes <code>/gps</code> once it is ready (a cold start can take up to ~90 s). GNSS stays on after a request (for faster follow-up fixes); <code>gpsoff</code> turns it off to save power.</div>
+    <div class="note" style="padding:0 4px; margin-top:6px">ℹ️ The altitude is converted from ellipsoidal (WGS84) to orthometric height above sea level using the <b>EGM96 geoid model</b>. The geoid value (deviation of sea level from the ellipsoid) is shown in parentheses.</div>
+  </div>
+</div>
+
+<!-- ============ MODAL: Über / Funktionsübersicht ============ -->
+<div class="modal-backdrop" id="aboutModal" aria-hidden="true" role="dialog" aria-labelledby="aboutTitle">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="title" id="aboutTitle"><i data-lucide="info"></i> About this console</span>
+      <span class="subtitle">ESP32 A7670 · MQTT Bridge</span>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="aboutClose" title="Close" aria-label="Close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p class="note">Local web console for the ESP32 A7670 SMS/call gateway. Communication runs through a local Deno bridge that keeps MQTT credentials server-side and only passes a fixed command whitelist. Boards are auto-discovered (retained messages).</p>
+
+      <h3>Available (integrated in firmware)</h3>
+      <ul class="note">
+        <li>✅ Show device status — topic <code>/info</code></li>
+        <li>✅ Show call status — topic <code>/callstatus</code></li>
+        <li>✅ List received SMS — topic <code>/sms</code></li>
+        <li>✅ Accept incoming call — command <code>accept</code></li>
+        <li>✅ Reject / hang up call — command <code>hangup</code></li>
+        <li>✅ Send SMS — command <code>sms</code></li>
+        <li>➕ Start outgoing call — command <code>call</code></li>
+        <li>➕ Reboot board — command <code>reboot</code></li>
+        <li>➕ Incoming caller number — topic <code>/checkresult</code></li>
+        <li>➕ Query GPS position — command <code>gps</code> → topic <code>/gps</code></li>
+        <li>➕ Turn GNSS off — command <code>gpsoff</code></li>
+        <li>➕ VoLTE on/off — command <code>volte</code> (<code>enable</code>) → topic <code>/volte</code></li>
+      </ul>
+
+      <h3>Not integrated / limitations</h3>
+      <ul class="note">
+        <li>❌ <b>Send USSD</b> — the firmware has <code>sendUSSD()</code> but it is <b>not</b> wired as an MQTT command.</li>
+        <li>ℹ️ "Reject" and "Hang up" are the same command (<code>hangup</code> / <code>AT+CHUP</code>).</li>
+        <li>ℹ️ Bridge bound to <code>127.0.0.1</code> only — not reachable from the network.</li>
+        <li>ℹ️ Publish rights on <code>esp32/commands/&lt;MAC&gt;</code> required.</li>
+        <li>ℹ️ Outgoing SMS as GSM-7 — umlauts/emoji may be mangled (reception correct via UCS2).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws = null;
+let selectedMac = "";
+let knownMacs = [];
+let incomingNumber = "";
+let unreadSms = 0;
+let missedCall = false;
+let smsCount = 0;
+
+// --- Theme toggle (persists in localStorage) --------------------------------
+const savedTheme = localStorage.getItem("theme");
+if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
+function updateThemeIcon() {
+  const t = document.documentElement.dataset.theme;
+  $("themeToggle").innerHTML = `<i data-lucide="${t === "light" ? "sun" : "moon"}"></i>`;
+  lucide.createIcons();
+}
+$("themeToggle").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("theme", next);
+  updateThemeIcon();
+});
+
+// --- About modal ------------------------------------------------------------
+const aboutModal = $("aboutModal");
+function openAbout() {
+  aboutModal.classList.add("show");
+  aboutModal.setAttribute("aria-hidden", "false");
+}
+function closeAbout() {
+  aboutModal.classList.remove("show");
+  aboutModal.setAttribute("aria-hidden", "true");
+}
+$("aboutBtn").addEventListener("click", openAbout);
+$("aboutClose").addEventListener("click", closeAbout);
+aboutModal.addEventListener("click", (e) => { if (e.target === aboutModal) closeAbout(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && aboutModal.classList.contains("show")) closeAbout();
+});
+
+// --- Tab navigation ---------------------------------------------------------
+const tabs = document.querySelectorAll(".tab");
+const panels = document.querySelectorAll(".tab-panel");
+tabs.forEach(tab => {
+  tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+});
+document.querySelectorAll(".tile[data-go]").forEach(tile => {
+  tile.addEventListener("click", () => switchTab(tile.dataset.go));
+});
+function switchTab(name) {
+  tabs.forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  panels.forEach(p => p.classList.toggle("active", p.dataset.tab === name));
+  if (name === "sms") { unreadSms = 0; updateBadges(); markSmsRead(); }
+  if (name === "call") { missedCall = false; updateBadges(); }
+}
+
+function updateBadges() {
+  const smsB = $("smsBadgeTab");
+  smsB.textContent = String(unreadSms);
+  smsB.classList.toggle("zero", unreadSms === 0);
+  const callB = $("callBadgeTab");
+  callB.textContent = missedCall ? "!" : "0";
+  callB.classList.toggle("zero", !missedCall);
+}
+
+function markSmsRead() {
+  document.querySelectorAll("#smsBody tr.unread").forEach(tr => tr.classList.remove("unread"));
+}
+
+function setDot(el, on) { el.classList.toggle("on", !!on); }
+function setConn(id, on) { $(id).classList.toggle("on", !!on); }
+
+function toast(msg, kind) {
+  const t = document.createElement("div");
+  t.className = "toast " + (kind || "");
+  const icon = kind === "ok" ? "check-circle" : kind === "bad" ? "alert-circle" : "info";
+  t.innerHTML = `<i data-lucide="${icon}"></i><span></span>`;
+  t.querySelector("span").textContent = msg;
+  $("toast").appendChild(t);
+  lucide.createIcons();
+  setTimeout(() => { t.style.opacity = "0"; t.style.transform = "translateX(20px)"; t.style.transition = "all .2s"; setTimeout(() => t.remove(), 200); }, 4000);
+}
+
+function log(line, sub, raw) {
+  const box = $("log");
+  const d = document.createElement("div");
+  const t = new Date().toLocaleTimeString();
+  d.innerHTML = `<span class="t">[${t}]</span> ${sub ? `<span class="sub">${sub}</span> ` : ""}<span class="raw">${escapeHtml(raw ?? line)}</span>`;
+  box.prepend(d);
+  while (box.childElementCount > 300) box.lastChild.remove();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// --- WebSocket to the local bridge -----------------------------------------
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { setDot($("dotBridge"), true); setConn("connBridge", true); log("Bridge connected"); };
+  ws.onclose = () => {
+    setDot($("dotBridge"), false); setConn("connBridge", false);
+    setDot($("dotBroker"), false); setConn("connBroker", false);
+    log("Bridge disconnected — reconnect in 2s"); setTimeout(connect, 2000);
+  };
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    handle(m);
+  };
+}
+
+function handle(m) {
+  switch (m.type) {
+    case "broker":
+      setDot($("dotBroker"), m.connected); setConn("connBroker", m.connected);
+      if (m.error) log("Broker error: " + m.error);
+      break;
+    case "macs": updateMacs(m.macs); break;
+    case "event": onEvent(m); break;
+    case "ack":
+      if (m.ok) toast("Command sent: " + m.action, "ok");
+      else toast("Error (" + (m.action||"?") + "): " + m.error, "bad");
+      break;
+  }
+}
+
+function updateMacs(macs) {
+  knownMacs = macs || [];
+  const sel = $("macSelect");
+  const cur = selectedMac;
+  sel.innerHTML = "";
+  if (!knownMacs.length) {
+    sel.innerHTML = '<option value="">— auto-detecting —</option>';
+  } else {
+    for (const mac of knownMacs) {
+      const o = document.createElement("option"); o.value = mac; o.textContent = mac; sel.appendChild(o);
+    }
+    if (!cur || !knownMacs.includes(cur)) selectedMac = knownMacs[0];
+    sel.value = selectedMac;
+  }
+}
+
+function resetBoardView() {
+  $("deviceStatus").innerHTML = '<span class="status-tag offline"><span class="dot"></span>—</span>';
+  $("deviceSignal").textContent = "—";
+  $("deviceSignal").classList.add("muted");
+  $("deviceModem").textContent = "—";
+  $("deviceImei").textContent = "—";
+  $("deviceTransport").textContent = "—";
+  $("deviceNetwork").textContent = "—";
+  $("deviceInfoTime").textContent = "";
+  setCallStatus("NO_CALL");
+  $("callTime").textContent = "—";
+  $("callTimeDetail").textContent = "no active call";
+  $("smsBody").innerHTML = '<tr><td colspan="3"><div class="empty"><i data-lucide="inbox"></i>No messages yet</div></td></tr>';
+  lucide.createIcons();
+  $("overviewSmsCount").textContent = "no SMS";
+  $("overviewGps").textContent = "not requested";
+  $("gpsStatus").textContent = "";
+  $("gpsResult").classList.remove("show");
+  $("gpsEmpty").style.display = "block";
+  $("volteStatus").textContent = "—";
+  $("overviewVolte").textContent = "—";
+  smsCount = 0;
+  unreadSms = 0;
+  missedCall = false;
+  updateBadges();
+  incomingNumber = "";
+  showIncoming(false);
+}
+
+$("macSelect").addEventListener("change", (e) => {
+  if (e.target.value === selectedMac) return;
+  selectedMac = e.target.value;
+  resetBoardView();
+});
+
+// --- Incoming event routing -------------------------------------------------
+function onEvent(m) {
+  const t = new Date(m.ts).toLocaleTimeString();
+  log(`${m.sub} (${m.mac}): ${m.raw}`, m.sub, m.raw);
+  switch (m.sub) {
+    case "info": {
+      showInfo(m.payload, t);
+      break;
+    }
+    case "callstatus": {
+      const st = (m.payload && m.payload.status) || "UNKNOWN";
+      setCallStatus(st, m.payload && m.payload.time);
+      break;
+    }
+    case "checkresult": {
+      const ev = m.payload && m.payload.event;
+      if (ev === 1) {
+        incomingNumber = (m.payload && m.payload.data) || "";
+        showIncoming(true);
+        missedCall = true;
+        updateBadges();
+      }
+      break;
+    }
+    case "sms": addSms(m.payload, m.raw, t); break;
+    case "gps": showGps(m.payload); break;
+    case "volte": showVolte(m.payload); break;
+  }
+}
+
+function showInfo(p, t) {
+  // Legacy: plain-text payload (e.g. "offline")
+  if (!p || typeof p === "string") {
+    const txt = p || "—";
+    $("deviceStatus").innerHTML = `<span class="status-tag offline"><span class="dot"></span>${escapeHtml(txt)}</span>`;
+    $("deviceSignal").textContent = "—";
+    $("deviceModem").textContent = "—";
+    $("deviceImei").textContent = "—";
+    $("deviceTransport").textContent = "—";
+    $("deviceNetwork").textContent = "—";
+    $("deviceInfoTime").textContent = t ? "last: " + t : "";
+    return;
+  }
+  // New structured JSON payload
+  const status = p.status || "unknown";
+  const isOnline = status === "online";
+  $("deviceStatus").innerHTML = `<span class="status-tag ${isOnline ? "online" : "offline"}"><span class="dot"></span>${escapeHtml(status)}</span>`;
+
+  // Signal strength (CSQ 0–31, 99 = unknown)
+  const net = p.network || {};
+  const sig = net.signal;
+  if (sig != null && sig !== 99) {
+    const bars = sig <= 7 ? 1 : sig <= 15 ? 2 : sig <= 23 ? 3 : 4;
+    let html = '<span class="signal-bars">';
+    for (let i = 1; i <= 4; i++) html += `<span class="bar${i <= bars ? " on" : ""}"></span>`;
+    html += `</span><span class="signal-val">${sig}</span>`;
+    $("deviceSignal").innerHTML = html;
+    $("deviceSignal").classList.remove("muted");
+  } else {
+    $("deviceSignal").textContent = sig === 99 ? "unknown" : "—";
+    $("deviceSignal").classList.add("muted");
+  }
+
+  $("deviceModem").textContent = p.modem || "—";
+  $("deviceImei").textContent = p.imei || "—";
+  $("deviceTransport").textContent = p.transport || "—";
+
+  const netParts = [];
+  if (net.operator) netParts.push(net.operator);
+  if (net.mode) netParts.push(net.mode);
+  if (net.band) netParts.push(net.band);
+  $("deviceNetwork").textContent = netParts.length ? netParts.join(" · ") : "—";
+
+  $("deviceInfoTime").textContent = t ? "last: " + t : "";
+}
+
+function showVolte(p) {
+  if (!p) return;
+  const state = p.enabled ? "ON (IMS)" : "OFF (CSFB)";
+  $("volteStatus").textContent =
+    `${state} · CEVDP=${p.cevdp} · IMS available: ${p.ims_available ? "yes" : "no"}` +
+    ` · registered: ${p.ims_registered ? "yes" : "no"}`;
+  $("overviewVolte").textContent = state;
+}
+
+function showGps(p) {
+  if (!p || !p.fix) {
+    $("gpsStatus").textContent = "No valid coordinates — please try again (clear view of the sky; a cold start can take a while).";
+    $("overviewGps").textContent = "no coordinates";
+    return;
+  }
+  const lat = Number(p.lat), lon = Number(p.lon);
+  const sats = p.satellites ?? "?";
+  const altEllip = p.alt;
+  const hdop = p.hdop != null ? Number(p.hdop) : null;
+  // Horizontal accuracy ≈ HDOP × 5 m. Quality: <1 ideal, <5 good.
+  const acc = hdop != null && !isNaN(hdop) ? Math.round(hdop * 5) : null;
+  const hdopStr = hdop != null && !isNaN(hdop)
+    ? `HDOP ${hdop.toFixed(2)}${acc != null ? ` (≈${acc} m)` : ""}`
+    : null;
+  const base = [`${sats} satellites`, hdopStr].filter(Boolean).join(" • ");
+  $("overviewGps").textContent = hdopStr ? `${sats} Sats · ${acc != null ? "≈" + acc + " m" : "HDOP " + hdop.toFixed(2)}` : `${sats} Sats`;
+  $("gpsCoords").textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+  $("gpsLink").href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
+  $("gpsPill").textContent = `${sats} Sats`;
+  $("gpsPill").style.display = "inline-block";
+  const d = 0.004;
+  const bbox = `${lon - d}%2C${lat - d}%2C${lon + d}%2C${lat + d}`;
+  $("gpsMap").src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lon}`;
+  $("gpsResult").classList.add("show");
+  $("gpsEmpty").style.display = "none";
+
+  // Höhe: ellipsoidisch (WGS84) → orthometrisch (ü. NN) via EGM96-Geoid.
+  // h_ortho = h_ellip - N ; N = Geoidhöhe über dem Ellipsoid.
+  if (altEllip == null) {
+    $("gpsStatus").textContent = base + " • altitude unknown";
+  } else {
+    $("gpsStatus").textContent = base + " • calculating altitude…";
+    EGM96.getHeight(lon, lat).then((N) => {
+      const altOrtho = altEllip - N;
+      $("gpsStatus").textContent =
+        `${base} • ${altOrtho.toFixed(1)} m above sea level (geoid: ${N >= 0 ? "+" : ""}${N.toFixed(1)} m)`;
+    }).catch(() => {
+      $("gpsStatus").textContent = `${base} • ${altEllip} m above ellipsoid (WGS84)`;
+    });
+  }
+}
+
+function showIncoming(show) {
+  $("incoming").classList.toggle("show", show);
+  $("incomingNum").textContent = incomingNumber || "unknown";
+}
+
+function setCallStatus(status, time) {
+  document.querySelectorAll(".call-badge").forEach(b => {
+    b.className = "pill-small call-badge " + status;
+    b.textContent = status;
+  });
+  if (time) {
+    $("callTime").textContent = "last: " + time;
+    $("callTimeDetail").textContent = "last: " + time;
+  }
+  if (status === "RINGING") {
+    showIncoming(true);
+    missedCall = true;
+    updateBadges();
+  } else if (status === "NO_CALL") {
+    incomingNumber = ""; showIncoming(false);
+    $("callTime").textContent = "—";
+    $("callTimeDetail").textContent = "no active call";
+  } else {
+    showIncoming(false);
+  }
+  $("btnHangup").disabled = (status === "NO_CALL");
+}
+$("btnHangup").disabled = true;
+
+function addSms(p, raw, t) {
+  const body = $("smsBody");
+  if (body.querySelector(".empty")) body.innerHTML = "";
+  const sender = (p && (p.sender || (p.data || "").split(":")[0])) || "?";
+  let message = p && p.message;
+  if (message == null) message = typeof p === "string" ? p : raw;
+  const tr = document.createElement("tr");
+  tr.classList.add("unread");
+  const td = (innerHTML, cls) => { const c = document.createElement("td"); if (cls) c.className = cls; c.innerHTML = innerHTML; return c; };
+  tr.appendChild(td(`<span class="ts">${t}</span>`));
+  tr.appendChild(td(`<span class="sender">${escapeHtml(sender)}</span>`));
+  tr.appendChild(td(escapeHtml(message), "msg"));
+  body.prepend(tr);
+  smsCount++;
+  unreadSms++;
+  updateBadges();
+  $("overviewSmsCount").textContent = `${smsCount} SMS${unreadSms > 0 ? ` · ${unreadSms} new` : ""}`;
+}
+
+// --- Sending commands -------------------------------------------------------
+function sendCommand(obj) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) { toast("Bridge not connected", "bad"); return; }
+  if (!selectedMac) { toast("No board selected", "bad"); return; }
+  ws.send(JSON.stringify({ type: "command", mac: selectedMac, ...obj }));
+}
+
+document.querySelectorAll("button[data-action]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const action = btn.dataset.action;
+    if (action === "reboot" && !confirm("Really reboot the board?")) return;
+    if (action === "call") {
+      const number = $(btn.dataset.from).value.trim();
+      if (!number) return toast("Number missing", "bad");
+      sendCommand({ action, number });
+    } else {
+      sendCommand({ action });
+    }
+  });
+});
+
+$("tileReboot").addEventListener("click", () => {
+  if (confirm("Really reboot the board?")) sendCommand({ action: "reboot" });
+});
+
+$("btnGps").addEventListener("click", () => {
+  $("gpsStatus").textContent = "Requesting coordinates… (cold start up to ~90 s)";
+  $("overviewGps").textContent = "requesting…";
+  sendCommand({ action: "gps" });
+});
+
+$("btnGpsOff").addEventListener("click", () => {
+  $("gpsStatus").textContent = "Turning GNSS off (saving power).";
+  $("overviewGps").textContent = "turned off";
+  sendCommand({ action: "gpsoff" });
+});
+
+$("btnVolteOn").addEventListener("click", () => {
+  $("volteStatus").textContent = "Enabling VoLTE…";
+  $("overviewVolte").textContent = "enabling…";
+  sendCommand({ action: "volte", enable: true });
+});
+$("btnVolteOff").addEventListener("click", () => {
+  $("volteStatus").textContent = "Disabling VoLTE (CSFB/2G)…";
+  $("overviewVolte").textContent = "disabling…";
+  sendCommand({ action: "volte", enable: false });
+});
+
+$("btnSendSms").addEventListener("click", () => {
+  const number = $("smsNumber").value.trim();
+  const message = $("smsMessage").value;
+  if (!number) return toast("Number missing", "bad");
+  if (!message) return toast("Message missing", "bad");
+  sendCommand({ action: "sms", number, message });
+  $("smsMessage").value = "";
+});
+
+// Keyboard-Shortcuts
+$("smsMessage").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $("btnSendSms").click(); }
+});
+$("callNumber").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); document.querySelector('button[data-action="call"]').click(); }
+});
+
+// Copy GPS coords
+$("gpsCopy").addEventListener("click", () => {
+  const txt = $("gpsCoords").textContent;
+  navigator.clipboard.writeText(txt).then(() => toast("Coordinates copied", "ok"), () => toast("Copy failed", "bad"));
+});
+
+// --- Init ------------------------------------------------------------------
+updateThemeIcon();
+lucide.createIcons();
+connect();
+</script>
+</body>
+</html>

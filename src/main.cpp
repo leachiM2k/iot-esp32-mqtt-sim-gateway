@@ -1,24 +1,30 @@
 #include <Arduino.h>
 #include <constants.h>
 
-#include <WiFiManager.h>
-#include <ESPmDNS.h>
-#include <esp_log.h>
-#include <mqtt_client.h>
+#include <WiFi.h>
 #include <ArduinoJson.h>
-#include <TinyGsmClient.h>
-#include <StreamDebugger.h>
-#include "MqttClient.h"
+#include <esp_task_wdt.h>
+#include <sys/time.h>
+#include "MqttService.h"
 #include "WifiConnection.h"
 #include "SimCommunication.h"
+#include "Connectivity.h"
+#include "Config.h"
+#include "ConfigServer.h"
 
-void onDataReceived(const char *topic, const char *data, int length);
+// Task-watchdog timeout. Must exceed the longest single blocking call in the
+// modem init (the SMS DONE wait, ~30 s) while still catching a real hang. The
+// bounded init loops feed the watchdog so they don't trip it prematurely.
+static const uint32_t WDT_TIMEOUT_S = 60;
+
+void onDataReceived(const char *topic, int topic_len, const char *data, int data_len);
 
 WifiConnection wifiConnection;
-StreamDebugger debugger(SerialAT, Serial);
-TinyGsm modem(debugger);
-MqttClient mqtt;
 SimCommunication simCommunication;
+MqttService mqtt;
+Connectivity connectivity;
+Config config;
+ConfigServer configServer;
 
 String getCurrentTimeISO8601()
 {
@@ -111,7 +117,115 @@ void publishCallStatus(const char *status)
     char topic[60] = {0};
     sprintf(topic, "%s/%s/callstatus", MQTT_EVENT_TOPIC, macStr.c_str());
 
-    mqtt.publish(topic, json);
+    // Retained: the current call state stays available to new subscribers.
+    mqtt.publish(topic, json, true);
+}
+
+void publishGps(const gps_result &g)
+{
+    String macStr = getCurrentMacAddress();
+
+    JsonDocument doc;
+    doc["mac"] = macStr;
+    doc["time"] = getCurrentTimeISO8601();
+    doc["fix"] = g.fix;
+    if (g.fix)
+    {
+        // serialized() keeps full decimal precision for the coordinates.
+        doc["lat"] = serialized(String(g.lat, 6));
+        doc["lon"] = serialized(String(g.lon, 6));
+        doc["alt"] = g.altitude; // WGS84 ellipsoidal height (m)
+        doc["satellites"] = g.satellites;
+        // Horizontal dilution of precision: lower is better (<1 ideal, <5 good).
+        // Rough horizontal accuracy ≈ hdop × 5 m.
+        doc["hdop"] = serialized(String(g.hdop, 2));
+    }
+
+    char json[256];
+    serializeJson(doc, json);
+    Serial.println(json);
+
+    char topic[60] = {0};
+    sprintf(topic, "%s/%s/gps", MQTT_EVENT_TOPIC, macStr.c_str());
+
+    // Retain only a real fix, so the last known position stays available to new
+    // subscribers; a "no fix" reply is transient and must not overwrite it.
+    mqtt.publish(topic, json, g.fix);
+}
+
+void publishVolte(const volte_status &v)
+{
+    String macStr = getCurrentMacAddress();
+
+    JsonDocument doc;
+    doc["mac"] = macStr;
+    doc["time"] = getCurrentTimeISO8601();
+    doc["enabled"] = v.enabled;
+    doc["cevdp"] = v.cevdp;
+    doc["ims_available"] = v.imsAvailable;
+    doc["ims_registered"] = v.imsRegistered;
+
+    char json[200];
+    serializeJson(doc, json);
+    Serial.println(json);
+
+    char topic[60] = {0};
+    sprintf(topic, "%s/%s/volte", MQTT_EVENT_TOPIC, macStr.c_str());
+
+    // Retained: current VoLTE state stays available to new subscribers.
+    mqtt.publish(topic, json, true);
+}
+
+// Publish the retained /info topic as JSON: liveness, modem model, current
+// transport (wlan/lte), IMEI and radio-network details. Retained so a new
+// subscriber immediately sees this board and its state.
+void publishInfo(const char *status)
+{
+    String macStr = getCurrentMacAddress();
+
+    JsonDocument doc;
+    doc["mac"] = macStr;
+    doc["time"] = getCurrentTimeISO8601();
+    doc["status"] = status;                       // "online"
+    doc["transport"] = connectivity.activeName(); // "WIFI" / "LTE" / "NONE"
+
+    if (simCommunication.isModemReady())
+    {
+        doc["modem"] = simCommunication.getModemName();
+        doc["imei"] = simCommunication.getImei();
+
+        network_info net = simCommunication.readNetworkInfo();
+        JsonObject n = doc["network"].to<JsonObject>();
+        n["operator"] = net.oper;
+        n["mode"] = net.mode;     // LTE / WCDMA / GSM
+        n["signal"] = net.signal; // CSQ 0..31, 99 = unknown
+        n["band"] = net.band;
+    }
+    else
+    {
+        doc["modem"] = nullptr; // degraded mode: modem never came up
+    }
+
+    char json[384];
+    serializeJson(doc, json);
+    Serial.println(json);
+
+    char topic[60] = {0};
+    sprintf(topic, "%s/%s/info", MQTT_EVENT_TOPIC, macStr.c_str());
+    mqtt.publish(topic, json, true);
+}
+
+// Called after every successful MQTT (re)connect, on the loop task. Re-publishes
+// the retained state so a fresh broker session (or a transport switch) is
+// immediately consistent again, and overwrites the "offline" Last Will.
+void onMqttConnect()
+{
+    publishInfo("online");
+    if (simCommunication.isModemReady())
+    {
+        publishCallStatus(simCommunication.getCallStatus().c_str());
+        publishVolte(simCommunication.readVolteStatus());
+    }
 }
 
 enum class Action
@@ -121,6 +235,9 @@ enum class Action
     ACCEPT,
     HANGUP,
     SMS,
+    GPS,
+    GPS_OFF,
+    VOLTE,
     UNKNOWN
 };
 
@@ -146,24 +263,38 @@ Action getAction(const char *action)
     {
         return Action::SMS;
     }
+    else if (strcmp(action, "gps") == 0)
+    {
+        return Action::GPS;
+    }
+    else if (strcmp(action, "gpsoff") == 0)
+    {
+        return Action::GPS_OFF;
+    }
+    else if (strcmp(action, "volte") == 0)
+    {
+        return Action::VOLTE;
+    }
     else
     {
         return Action::UNKNOWN;
     }
 }
 
-void onDataReceived(const char *topic, const char *data, int length)
+void onDataReceived(const char *topic, int topic_len, const char *data, int data_len)
 {
-    Serial.print("Callback");
-    Serial.println(topic);
-    Serial.println(data);
-    Serial.println(length);
+    // topic and data come straight from the MQTT event and are NOT
+    // null-terminated, so they must only ever be printed with an explicit
+    // length (%.*s) — never %s / println, which would read past the buffer.
+    Serial.printf("Callback - Topic: %.*s, Data: %.*s (%d bytes)\n",
+                  topic_len, topic, data_len, data, data_len);
 
     // Allocate a temporary JsonDocument
     JsonDocument doc;
 
-    // Deserialize the JSON document
-    DeserializationError error = deserializeJson(doc, data, length);
+    // Deserialize the JSON document (length-bounded, so the missing
+    // terminator is fine here)
+    DeserializationError error = deserializeJson(doc, data, data_len);
 
     // Test if parsing succeeds
     if (error)
@@ -177,11 +308,27 @@ void onDataReceived(const char *topic, const char *data, int length)
     const char *action = doc["action"];
     const char *number;
 
+    // A missing "action" yields a null pointer; guard before strcmp/println
+    // so a malformed command can't crash the device.
+    if (!action)
+    {
+        Serial.println("Command missing 'action' field, ignoring");
+        return;
+    }
+
     Serial.print("Searching Action enum for:");
     Serial.println(action);
     Action act = getAction(action);
     Serial.print("Action enum:");
     Serial.println((int)act);
+
+    // Reject modem-dependent commands while the modem is not ready (degraded
+    // mode), but always allow a remote reboot so the device stays controllable.
+    if (act != Action::REBOOT && act != Action::UNKNOWN && !simCommunication.isModemReady())
+    {
+        Serial.println("Modem not ready, ignoring command");
+        return;
+    }
 
     switch (act)
     {
@@ -192,6 +339,11 @@ void onDataReceived(const char *topic, const char *data, int length)
 
     case Action::CALL:
         number = doc["number"];
+        if (!number)
+        {
+            Serial.println("call action requires 'number' field");
+            break;
+        }
         simCommunication.makeCall(number);
         publishCallStatus(simCommunication.getCallStatus().c_str());
         break;
@@ -220,56 +372,167 @@ void onDataReceived(const char *topic, const char *data, int length)
         }
         break;
 
+    case Action::GPS:
+        // Just request a fix; the loop task acquires it and publishes /gps.
+        Serial.println("GPS position requested.");
+        simCommunication.requestGps();
+        break;
+
+    case Action::GPS_OFF:
+        Serial.println("GPS power-down requested.");
+        simCommunication.powerDownGps();
+        break;
+
+    case Action::VOLTE:
+        {
+            // {"action":"volte","enable":true|false}
+            if (!doc["enable"].is<bool>())
+            {
+                Serial.println("volte action requires boolean 'enable' field");
+                break;
+            }
+            bool enable = doc["enable"];
+            Serial.printf("VoLTE %s requested.\n", enable ? "ON" : "OFF");
+            simCommunication.requestVolte(enable);
+        }
+        break;
+
     default:
         break;
     }
+}
 
-    Serial.printf("Callback - Topic: %s, Data: %s\n", topic, data);
+// Resolve the broker hostname using whichever transport is currently active.
+// WiFi uses the lwIP resolver; LTE uses the modem's DNS (AT+CDNSGIP), because
+// the A7670's inline CIPOPEN DNS is unreliable over the mobile APN.
+bool resolveBroker(const char *host, IPAddress &out)
+{
+    // If the broker is already configured as an IP literal, skip DNS entirely.
+    if (out.fromString(host))
+    {
+        return true;
+    }
+    switch (connectivity.active())
+    {
+    case Transport::WIFI:
+        return WiFi.hostByName(host, out) == 1;
+    case Transport::LTE:
+        return simCommunication.resolveHost(host, out);
+    default:
+        return false;
+    }
 }
 
 void setup()
 {
     Serial.begin(115200); // Set console baud rate
 
-    wifiConnection.init();
+    // Load runtime config (NVS, with constants.h defaults) before anything uses
+    // it; values are editable via the on-device config web page (ConfigServer).
+    config.load();
 
-    configTzTime(TZ_INFO, NTP_SERVER);
-
-    simCommunication.init();
+    configTzTime(config.values.tz.c_str(), config.values.ntp.c_str());
 
     String macStr = getCurrentMacAddress();
 
+    // 1. Arm the task watchdog before the modem init (which contains the
+    //    long-running waits). The WiFiManager portal is non-blocking now, so it
+    //    can no longer stall setup() past the timeout. Init helpers feed the
+    //    watchdog, so a genuine hang triggers a reset instead of a silent freeze.
+    esp_task_wdt_init(WDT_TIMEOUT_S, true);
+    esp_task_wdt_add(NULL);
+
+    // 2. Modem init first: it is needed for the LTE transport (data context)
+    //    AND for calls/SMS. Bounded by timeouts; on failure stay up in a
+    //    degraded mode so the device remains reachable (e.g. for a remote reboot
+    //    once a transport comes up).
+    bool modemOk = simCommunication.init(config.values.apn.c_str(),
+                                         config.values.dns1.c_str(),
+                                         config.values.dns2.c_str());
+    if (!modemOk)
+    {
+        Serial.println("Modem initialization failed - running in degraded mode.");
+    }
+    else
+    {
+        int smsCount = simCommunication.getSMSCount();
+        Serial.print("Number of SMS on SIM card: ");
+        Serial.println(smsCount);
+
+        // Seed the clock from the modem's network time so the first retained
+        // publishes carry a real timestamp even on an LTE-only boot, where NTP
+        // (which runs over lwIP/WiFi only) cannot reach a time server.
+        time_t e = simCommunication.getNetworkEpochUTC();
+        if (e > 0)
+        {
+            struct timeval tv = {e, 0};
+            settimeofday(&tv, nullptr);
+            Serial.printf("Clock seeded from modem: %ld\n", (long)e);
+        }
+    }
+
+    // 3. WiFi bring-up (non-blocking): connects to the saved AP if present,
+    //    otherwise leaves a config portal open while the device runs over LTE.
+    wifiConnection.init();
+
+    // 4. MQTT + connectivity. The Last Will (retained "offline" on /info) lets
+    //    the broker reflect an ungraceful drop; onMqttConnect overwrites it with
+    //    the live status on every successful (re)connect. MQTT connects as soon
+    //    as Connectivity selects a transport (WiFi preferred, else LTE).
     char commandsTopic[60] = {0};
     sprintf(commandsTopic, "%s/%s", MQTT_COMMAND_TOPIC, macStr.c_str());
-    mqtt = MqttClient(MQTT_SERVER, MQTT_USER, MQTT_PASSWORD, commandsTopic, MQTT_EVENT_TOPIC, onDataReceived);
-    mqtt.connect();
 
     char infoTopic[60] = {0};
     sprintf(infoTopic, "%s/%s/info", MQTT_EVENT_TOPIC, macStr.c_str());
 
-    String infoMessage = "Device started at " + getCurrentTimeISO8601();
-    mqtt.publish(infoTopic, infoMessage.c_str()); 
+    static String clientId = "esp32a7670-" + macStr;
 
-    int smsCount = simCommunication.getSMSCount();
-    Serial.print("Number of SMS on SIM card: ");
-    Serial.println(smsCount);
+    // Last Will: a retained JSON "offline" on /info, so the broker reflects an
+    // ungraceful drop in the same shape as the live status; onMqttConnect
+    // overwrites it with the full "online" payload on every (re)connect.
+    static String willMessage = "{\"status\":\"offline\",\"mac\":\"" + macStr + "\"}";
+
+    mqtt.begin(config.values.mqttHost.c_str(), config.values.mqttPort,
+               config.values.mqttUser.c_str(), config.values.mqttPass.c_str(),
+               clientId.c_str(), commandsTopic,
+               infoTopic, willMessage.c_str(),
+               onDataReceived, onMqttConnect, resolveBroker);
+
+    connectivity.begin(wifiConnection, simCommunication, mqtt);
+
+    // On-device configuration web page (served on :80 while WiFi is connected).
+    configServer.begin(config);
+
+    // Pick a transport and attempt the first connect right away, so retained
+    // state is published as soon as a link is available.
+    connectivity.update();
+    mqtt.loop();
 }
 
 void loop()
 {
-    // Check MQTT connection and reconnect if necessary
-    if (!mqtt.connected()) {
-        Serial.println("MQTT disconnected, attempting reconnect...");
-        mqtt.reconnect();
-        delay(1000); // Give it time to connect
-    }
+    // Strict, single-task sequence so the modem UART is only ever touched by one
+    // thing at a time (raw AT polling AND the LTE MQTT socket share it). Never
+    // interleave these steps.
 
+    // 1./2. Service WiFi portal and pick/switch the MQTT transport (WiFi>LTE).
+    connectivity.update();
+
+    // Service the on-device config web page (only runs while WiFi is connected,
+    // so it never competes with WiFiManager's AP portal for port 80).
+    configServer.tick(wifiConnection.isConnected());
+
+    // 3. Service MQTT: reconnect (with backoff) or pump PubSubClient. Incoming
+    //    commands are dispatched from here via onDataReceived, on this task, so
+    //    the handlers may touch the modem directly.
+    mqtt.loop();
+
+    // 4. Poll the modem for incoming calls/SMS.
     sim_com_check_result result = simCommunication.check();
-
     if (result.event != SIM_COM_NOTHING)
     {
         sendSimComEvent(result);
-        
+
         // Only publish call status for call-related events
         if (result.event == SIM_COM_CALL || result.event == SIM_COM_CALL_UPDATE)
         {
@@ -277,13 +540,52 @@ void loop()
         }
     }
 
-    if (SerialAT.available())
+    // 5. Drive the GNSS state machine and publish a position once ready.
+    simCommunication.updateGps();
+    if (simCommunication.gpsResultPending())
     {
-        Serial.write(SerialAT.read());
+        publishGps(simCommunication.takeGpsResult());
     }
-    if (Serial.available())
+
+    // 6. Apply a pending VoLTE toggle and publish the resulting state.
+    simCommunication.updateVolte();
+    if (simCommunication.volteResultPending())
     {
-        SerialAT.write(Serial.read());
+        publishVolte(simCommunication.takeVolteStatus());
     }
+
+    // 6a. Periodically refresh the retained /info (transport, signal, band,
+    //     timestamp) so the broker reflects the current state even without a
+    //     reconnect. Only while connected; throttled to limit AT traffic.
+    static unsigned long lastInfoPublish = 0;
+    static const unsigned long INFO_PUBLISH_INTERVAL_MS = 60000;
+    if (mqtt.connected() && millis() - lastInfoPublish >= INFO_PUBLISH_INTERVAL_MS)
+    {
+        lastInfoPublish = millis();
+        publishInfo("online");
+    }
+
+    // 6b. Keep the clock real. SNTP runs over lwIP (WiFi) only, so on an
+    //     LTE-only link it never sets the time; seed it from the modem's network
+    //     clock until it is valid. Once set (or once NTP syncs over WiFi) this
+    //     stops. Throttled, and only issues an AT while the time is still unset.
+    static unsigned long lastClockTry = 0;
+    if (time(nullptr) < 1700000000UL && millis() - lastClockTry > 15000)
+    {
+        lastClockTry = millis();
+        time_t e = simCommunication.getNetworkEpochUTC();
+        if (e > 0)
+        {
+            struct timeval tv = {e, 0};
+            settimeofday(&tv, nullptr);
+            Serial.printf("Clock seeded from modem: %ld\n", (long)e);
+        }
+    }
+
+    // 7. Keep the watchdog happy; a stuck loop will reset the device.
+    //    (The raw SerialAT<->Serial bridge was removed: with MQTT now riding the
+    //    modem UART over LTE, draining SerialAT here would steal the TinyGSM
+    //    socket bytes.)
+    esp_task_wdt_reset();
     delay(1);
 }

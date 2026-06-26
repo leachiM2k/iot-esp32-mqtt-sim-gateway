@@ -4,19 +4,42 @@ A feature-rich ESP32-based IoT gateway that combines WiFi, MQTT, GSM connectivit
 
 ## Features
 
-- **WiFi Connectivity**: Easy setup via WiFiManager captive portal
-- **MQTT Communication**: Bidirectional MQTT messaging with auto-reconnect
+- **WiFi Connectivity**: Easy setup via WiFiManager captive portal (non-blocking,
+  so the device runs over LTE while WiFi is being configured)
+- **Dual-Transport MQTT**: MQTT runs over WiFi **or** the LTE modem. A
+  `Connectivity` manager picks the best transport each loop (WLAN > LTE > none)
+  and switches `MqttService` automatically when WiFi drops or returns
+- **MQTT Communication**: Bidirectional MQTT messaging (PubSubClient) with
+  auto-reconnect and a retained Last Will
 - **GSM/LTE Modem**: Full A7670 modem support via TinyGSM
 - **SMS Gateway**: Send and receive SMS messages via MQTT commands
 - **Voice Calls**: Make, receive, and manage voice calls remotely
-- **USSD Support**: Query network information and balance
+- **GPS**: Query the GNSS position asynchronously (A7670 GPS), shown on a map
+- **VoLTE**: Toggle the modem's voice-domain preference (IMS / CSFB) remotely
+- **On-Device Web Config**: Deployment settings (MQTT, APN, DNS, NTP, TZ) editable
+  via a small web page on port 80, persisted in NVS — no reflash needed
 - **Event Publishing**: Real-time event notifications (calls, SMS) to MQTT
-- **NTP Time Sync**: Automatic time synchronization
+- **NTP Time Sync**: Automatic time synchronization (with modem time as fallback)
 - **mDNS Support**: Device discovery on local network
 
 ## Hardware
 
-**Tested on**: LilyGo T-Call A7670E
+**Board**: LilyGo T-Call A7670E, **hardware revision V1.1** (ESP32-WROVER-E, 4 MB
+Flash / 8 MB PSRAM). The board build macro is `LILYGO_T_CALL_A7670_V1_1`
+(`platformio.ini`); the V1.1 pinout matches LilyGo's
+[official definitions](https://github.com/Xinyuan-LilyGO/LilyGo-Modem-Series).
+
+### Modem variant
+
+The board ships with one of several A7670 modem variants. This project targets the
+**A7670E** (Europe bands: LTE-FDD B1/B3/B5/B7/B8/B20, GSM 900/1800) with voice +
+SMS support. The unit in use is confirmed (via boot log) as **A7670E-FASE**
+(firmware revision `A7670M7_V1.11.1`) — the variant with GPS, voice and SMS.
+GPS is supported by the firmware (see the `gps` / `gpsoff` commands below).
+
+To find your exact variant, watch the serial console at boot for the `Model Name:`
+line (from `getModemName()`) or send `AT+SIMCOMATI`. The model is also published to
+MQTT on boot — see the `/info` event below.
 
 ### Pin Configuration
 
@@ -34,18 +57,39 @@ A feature-rich ESP32-based IoT gateway that combines WiFi, MQTT, GSM connectivit
   ```
 
 ### Libraries
-- TinyGSM (included in `lib/`)
+- TinyGSM (vendored in `lib/`, not from the registry)
 - StreamDebugger v1.0.1
 - WiFiManager v2.0.17
 - ArduinoJson v7.3.0
+- PubSubClient v2.8
 
 ## Configuration
 
-Edit `src/constants.h` to configure:
+Deployment settings are **runtime-configurable** and persisted in NVS (no
+reflash needed). The compile-time values in `src/constants.h` act as the
+factory defaults when a key has never been written.
+
+### Via the on-device web page (recommended)
+
+Once WiFi is connected, the device serves a small config page on port 80:
+
+1. Find the device on the network via mDNS (hostname `SG-ESP32-<hex>`, where
+   `<hex>` is the last three bytes of the WiFi MAC) or its IP.
+2. Open `http://<hostname>.local/` (or the IP) in a browser.
+3. Edit MQTT broker / user, APN, DNS, NTP server and timezone, then **Save &
+   Reboot** — values are written to NVS and take effect on the next boot.
+
+> While WiFi is down, port 80 is freed so WiFiManager's captive portal can use
+> it; the config page comes back once WiFi reconnects.
+
+### Via `src/constants.h` (factory defaults)
+
+If a key has never been written to NVS, these defaults apply:
 
 ```cpp
 #define NETWORK_APN     "your-apn"           // GSM APN
-#define MQTT_SERVER     "mqtt://your-server" // MQTT broker URL
+#define MQTT_HOST       "your-server"        // broker hostname
+#define MQTT_PORT       1883                  // broker port
 #define MQTT_USER       "username"
 #define MQTT_PASSWORD   "password"
 #define MQTT_COMMAND_TOPIC "esp32/commands"
@@ -102,54 +146,161 @@ Send JSON commands to control the device:
 }
 ```
 
-#### Send USSD
+#### Reboot
 ```json
 {
-  "action": "ussd",
-  "code": "*100#"
+  "action": "reboot"
 }
 ```
 
-### Event Topic (`esp32/events/<MAC>`)
-
-The device publishes events with ISO8601 timestamps:
-
-#### Incoming Call
+#### Query GPS position
 ```json
 {
-  "timestamp": "2025-11-03T10:15:30Z",
+  "action": "gps"
+}
+```
+Requests a position fix. Handled **asynchronously** — the command returns
+immediately and the board acquires the fix in the background (on the main loop,
+so it never blocks the device or the modem UART), then publishes it on the
+`/gps` event topic. A cold start may need a moment / a clear view of the sky.
+GNSS is kept on after a request so later fixes come faster.
+
+#### Power down GPS
+```json
+{
+  "action": "gpsoff"
+}
+```
+Powers GNSS off to save energy (`AT+CGNSSPWR=0`).
+
+#### Toggle VoLTE
+```json
+{
+  "action": "volte",
+  "enable": true
+}
+```
+Sets the modem's voice domain preference: `enable:true` → `AT+CEVDP=3` (IMS
+preferred = VoLTE, voice over LTE with data kept alive); `enable:false` →
+`AT+CEVDP=1` (CS only → CSFB to 2G, data suspended during a call). The resulting
+state is published on the `/volte` event topic.
+
+> **Note:** A `sendUSSD()` method exists in the firmware but is currently **not**
+> wired to any MQTT command, so there is no `ussd` action yet.
+
+### Event Topics
+
+The device publishes to several sub-topics under `esp32/events/<MAC>`. All event
+payloads carry an ISO8601 timestamp in the `time` field and the device `mac`.
+
+#### Incoming Call — `esp32/events/<MAC>/checkresult`
+```json
+{
   "mac": "AC1518B62E50",
-  "event": "call",
-  "number": "+491234567890"
+  "time": "2025-11-03T10:15:30Z",
+  "event": 1,
+  "data": "+491234567890"
 }
 ```
 
-#### Call Status Update
+#### Call Status Update — `esp32/events/<MAC>/callstatus`
+Published on call-related events and after `call`/`accept`/`hangup` commands.
 ```json
 {
-  "timestamp": "2025-11-03T10:15:35Z",
   "mac": "AC1518B62E50",
-  "event": "call_update",
+  "time": "2025-11-03T10:15:35Z",
   "status": "ESTABLISHED"
 }
 ```
+`status` is one of `NO_CALL`, `CALLING`, `RINGING`, `ESTABLISHED`, `UNKNOWN`.
 
-#### SMS Received
+#### SMS Received — `esp32/events/<MAC>/sms`
 ```json
 {
-  "timestamp": "2025-11-03T10:20:00Z",
   "mac": "AC1518B62E50",
-  "event": "sms",
-  "message": "SMS content here"
+  "time": "2025-11-03T10:20:00Z",
+  "event": 3,
+  "sender": "+491234567890",
+  "message": "SMS content here",
+  "data": "+491234567890:SMS content here"
 }
 ```
 
+#### Device Status — `esp32/events/<MAC>/info`
+Published as **JSON** (retained) on boot, after MQTT (re)connect, and
+periodically from the loop. Liveness + modem model + active transport + radio
+network details, so a new subscriber immediately sees the board and its state.
+The Last Will is a retained JSON `{"status":"offline"}` on the same topic, so a
+crash/disconnect is reflected automatically.
+
+When the modem is ready:
+```json
+{
+  "mac": "AC1518B62E50",
+  "time": "2025-11-03T10:15:00Z",
+  "status": "online",
+  "transport": "WIFI",
+  "modem": "A7670E-FASE",
+  "imei": "866123456789012",
+  "network": {
+    "operator": "sipgate",
+    "mode": "LTE",
+    "signal": 23,
+    "band": "B20"
+  }
+}
+```
+In degraded mode (modem never came up), `modem` is `null` and the `network`
+object is omitted. `transport` is one of `WIFI`, `LTE`, `NONE`.
+
+#### GPS Position — `esp32/events/<MAC>/gps`
+Reply to a `gps` command. Coordinates are in decimal degrees. A successful fix
+is published **retained** (last known position); a no-fix reply is transient.
+```json
+{
+  "mac": "AC1518B62E50",
+  "time": "2026-06-19T22:00:00Z",
+  "fix": true,
+  "lat": 52.516275,
+  "lon": 13.377704,
+  "alt": 38.5,
+  "satellites": 9,
+  "hdop": 1.20
+}
+```
+`alt` is the WGS84 ellipsoidal height (m). `hdop` is the horizontal dilution of
+precision (lower is better; rough horizontal accuracy ≈ HDOP × 5 m).
+When there is no fix yet: `{ "mac": "...", "time": "...", "fix": false }`.
+
+#### VoLTE State — `esp32/events/<MAC>/volte`
+Current voice-domain / IMS state. Published once at boot and after each `volte`
+command. **Retained**.
+```json
+{
+  "mac": "AC1518B62E50",
+  "time": "2026-06-19T22:30:00Z",
+  "enabled": true,
+  "cevdp": 3,
+  "ims_available": true,
+  "ims_registered": true
+}
+```
+
+> **Note:** The `event` field is the numeric enum value
+> (`1` = call, `2` = call update, `3` = SMS).
+>
+> `/info`, `/callstatus` and `/volte` are published as retained messages;
+> `/sms`, `/checkresult` and a no-fix `/gps` are transient.
+
 ## First Run
 
-1. **WiFi Setup**: Device creates AP `AutoConnectAP` on first boot
-2. Connect to AP and configure WiFi credentials
-3. Device connects to WiFi and MQTT broker
-4. Subscribe to command topic to control device
+1. **WiFi Setup**: If no saved WiFi is found, the device starts a captive portal
+   with SSID `SG-ESP32-<hex>` (the last three bytes of the WiFi MAC, uppercase hex)
+2. Connect to that AP and configure your WiFi credentials
+3. Device connects to WiFi and the MQTT broker (falls back to LTE if WiFi is
+   unavailable)
+4. Subscribe to the command topic to control the device, or use the local
+   [web console](web/README.md)
 
 ## Known Issues
 

@@ -20,13 +20,23 @@
 #define TINY_GSM_MODEM_A7670
 #endif
 
-#define NETWORK_APN     "sipgate" 
+#define NETWORK_APN     "sipgate"
+
+// Public DNS servers for the LTE data context. The carrier/APN DNS proved
+// unreliable (AT+CDNSGIP -> "0,10", AT+CIPOPEN -> ",11" DNS parse failed), so we
+// point the modem at Google DNS via AT+CDNSCFG after the data context is up.
+#define NETWORK_DNS_PRIMARY     "8.8.8.8"
+#define NETWORK_DNS_SECONDARY   "8.8.4.4"
 
 #define NTP_SERVER "de.pool.ntp.org"
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
 
-// MQTT Server
+// MQTT Server.
+// PubSubClient needs host and port separately (it has no URL parser), so the
+// broker is split out here. MQTT_SERVER is kept for reference / logging only.
 #define MQTT_SERVER "mqtt://server.tld"
+#define MQTT_HOST "server.tld"
+#define MQTT_PORT 1883
 #define MQTT_USER "esp32a7670"
 #define MQTT_PASSWORD "PASSWORD-PLACEHOLDER"
 #define MQTT_COMMAND_TOPIC "esp32/commands"
